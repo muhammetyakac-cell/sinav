@@ -1,20 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  onSnapshot, 
-  doc, 
-  updateDoc,
-  arrayUnion
-} from 'firebase/firestore';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  onAuthStateChanged,
-  signInWithCustomToken 
-} from 'firebase/auth';
 import { 
   Calendar as CalendarIcon, 
   ChevronLeft, 
@@ -32,29 +16,11 @@ import {
   ShieldCheck
 } from 'lucide-react';
 
-// Firebase ve Uygulama Yapılandırması (Hata denetimli)
-const firebaseConfig = typeof __firebase_config !== 'undefined'
-  ? (typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config)
-  : null;
-
-const hasFirebaseConfig = Boolean(firebaseConfig && firebaseConfig.apiKey);
+// Supabase Yapılandırması
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
-
-let auth = null;
-let db = null;
-
-if (hasFirebaseConfig) {
-  const app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-}
-
-// Rule 1 & Firestore Fix: appId içindeki '/' karakterleri segment hatasına yol açtığı için temizlenmelidir
-const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'exam-tracker-app';
-const appId = rawAppId.replace(/\//g, '_');
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -140,54 +106,17 @@ export default function App() {
     return `${supabaseUrl}/storage/v1/object/public/${supabaseBucket}/${filePath}`;
   };
 
-  // Auth İşlemleri (Rule 3)
+  // Basit kullanıcı başlatma
   useEffect(() => {
-    if (!auth) {
-      setUser({ uid: 'local-user' });
-      if (!hasSupabaseConfig) {
-        setLoading(false);
-      }
-      return;
+    setUser({ uid: 'local-user' });
+    if (!hasSupabaseConfig) {
+      setLoading(false);
     }
-
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("Auth error:", error);
-      }
-    };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
   }, []);
 
-  // Veri Çekme (Public Collection - Rule 1 Pathing)
+  // Veri Çekme
   useEffect(() => {
     if (!user) return;
-
-    if (db) {
-      // Koleksiyon yolu: artifacts / {appId} / public / data / exams (5 segment - Tek sayı olmalı)
-      const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
-      
-      const unsubscribe = onSnapshot(examsRef, (snapshot) => {
-        const examData = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
-        setExams(examData);
-        setLoading(false);
-      }, (error) => {
-        console.error("Firestore error:", error);
-        setLoading(false);
-      });
-
-      return () => unsubscribe();
-    }
 
     if (hasSupabaseConfig) {
       const fetchExams = async () => {
@@ -246,14 +175,7 @@ export default function App() {
     if (!newExam.title || !newExam.date || role !== 'admin' || !user) return;
 
     try {
-      if (db) {
-        const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
-        await addDoc(examsRef, {
-          ...newExam,
-          notes: [],
-          createdAt: new Date().toISOString()
-        });
-      } else if (hasSupabaseConfig) {
+      if (hasSupabaseConfig) {
         const res = await fetch(`${supabaseUrl}/rest/v1/exams`, {
           method: 'POST',
           headers: getSupabaseHeaders(true),
@@ -261,7 +183,6 @@ export default function App() {
             title: newExam.title,
             date: newExam.date,
             description: newExam.description,
-            notes: [],
           }),
         });
         if (!res.ok) throw new Error(`Supabase add exam failed: ${res.status}`);
@@ -282,24 +203,7 @@ export default function App() {
     if (!newNote.title || !newNote.file || !selectedExam || !user) return;
 
     try {
-      if (db) {
-        const noteObj = {
-          id: crypto.randomUUID(),
-          title: newNote.title,
-          content: `Dosya: ${newNote.file.name}`,
-          author: user.uid,
-          date: new Date().toISOString()
-        };
-        const examDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exams', selectedExam.id);
-        await updateDoc(examDocRef, {
-          notes: arrayUnion(noteObj)
-        });
-
-        setSelectedExam(prev => ({
-          ...prev,
-          notes: [...(prev.notes || []), noteObj]
-        }));
-      } else if (hasSupabaseConfig) {
+      if (hasSupabaseConfig) {
         const fileUrl = await uploadNoteFileToSupabase(newNote.file);
         const insertRes = await fetch(`${supabaseUrl}/rest/v1/notes`, {
           method: 'POST',
