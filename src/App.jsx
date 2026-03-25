@@ -1,21 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  collection, 
-  addDoc, 
-  onSnapshot, 
-  query, 
-  doc, 
-  updateDoc,
-  arrayUnion
-} from 'firebase/firestore';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  onAuthStateChanged,
-  signInWithCustomToken 
-} from 'firebase/auth';
+// Supabase kütüphanesini doğrudan CDN üzerinden içe aktararak derleme hatasını gideriyoruz
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 import { 
   Calendar as CalendarIcon, 
   ChevronLeft, 
@@ -25,36 +10,26 @@ import {
   Download, 
   Upload, 
   Clock,
-  X,
+  X, 
   BookOpen,
   Lock,
   User,
   LogOut,
-  ShieldCheck
+  ShieldCheck,
+  FileUp,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
-// Firebase ve Uygulama Yapılandırması (Hata denetimli)
-const firebaseConfig = typeof __firebase_config !== 'undefined'
-  ? (typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config)
-  : null;
-
-const hasFirebaseConfig = Boolean(firebaseConfig && firebaseConfig.apiKey);
-
-let auth = null;
-let db = null;
-
-if (hasFirebaseConfig) {
-  const app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-}
-
-// Rule 1 & Firestore Fix: appId içindeki '/' karakterleri segment hatasına yol açtığı için temizlenmelidir
-const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'exam-tracker-app';
-const appId = rawAppId.replace(/\//g, '_');
+/**
+ * SUPABASE YAPILANDIRMASI
+ * Sağladığın anahtarlar buraya entegre edildi.
+ */
+const supabaseUrl = "https://phicbgmciqrfeuwbnlrv.supabase.co";
+const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBoaWNiZ21jaXFyZmV1d2JubHJ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NjQxMDAsImV4cCI6MjA5MDA0MDEwMH0.6Wx-yAccwOpklSjWBz6dzS3M2awLcxId4eXBA5H2NFI";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function App() {
-  const [user, setUser] = useState(null);
   const [role, setRole] = useState(null); // 'admin' | 'student' | null
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,122 +37,110 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedExam, setSelectedExam] = useState(null);
   const [newExam, setNewExam] = useState({ title: '', date: '', description: '' });
-  const [newNote, setNewNote] = useState({ title: '', content: '' });
+  
+  const [uploading, setUploading] = useState(false);
+  const [newNote, setNewNote] = useState({ title: '', file: null });
+  
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
 
-  // Auth İşlemleri (Rule 3)
+  // Veri Çekme (Supabase Database)
   useEffect(() => {
-    if (!auth) {
-      setUser({ uid: 'local-user' });
+    const fetchExams = async () => {
+      const { data, error } = await supabase
+        .from('exams')
+        .select('*, notes(*)');
+      
+      if (!error) setExams(data);
       setLoading(false);
-      return;
-    }
-
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("Auth error:", error);
-      }
     };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
+
+    fetchExams();
+
+    // Gerçek zamanlı güncellemeler
+    const subscription = supabase
+      .channel('public:exams')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exams' }, fetchExams)
+      .subscribe();
+
+    return () => supabase.removeChannel(subscription);
   }, []);
 
-  // Veri Çekme (Public Collection - Rule 1 Pathing)
-  useEffect(() => {
-    if (!user || !db) return;
-
-    // Koleksiyon yolu: artifacts / {appId} / public / data / exams (5 segment - Tek sayı olmalı)
-    const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
-    
-    const unsubscribe = onSnapshot(examsRef, (snapshot) => {
-      const examData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setExams(examData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Firestore error:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // En yakın sınavı hesapla
+  // Geri sayım hesaplama
   const nextExam = useMemo(() => {
     const now = new Date();
+    now.setHours(0, 0, 0, 0);
     const futureExams = exams
-      .filter(e => new Date(e.date) >= now.setHours(0,0,0,0))
+      .filter(e => new Date(e.date) >= now)
       .sort((a, b) => new Date(a.date) - new Date(b.date));
     return futureExams[0] || null;
   }, [exams]);
 
   const daysToNextExam = useMemo(() => {
     if (!nextExam) return null;
-    const diff = new Date(nextExam.date) - new Date();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days < 0 ? 0 : days;
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    const diff = new Date(nextExam.date) - now;
+    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
   }, [nextExam]);
 
-  // Takvim Yardımcıları
-  const daysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
-  const firstDayOfMonth = (year, month) => {
-    const day = new Date(year, month, 1).getDay();
-    return day === 0 ? 6 : day - 1; // Pzt=0 için ayarla
-  };
-
+  // Sınav Ekleme (Admin Yetkisi)
   const handleAddExam = async (e) => {
     e.preventDefault();
-    if (!newExam.title || !newExam.date || role !== 'admin' || !user || !db) return;
+    if (!newExam.title || !newExam.date || role !== 'admin') return;
 
-    try {
-      const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
-      await addDoc(examsRef, {
-        ...newExam,
-        notes: [],
-        createdAt: new Date().toISOString()
-      });
+    const { error } = await supabase
+      .from('exams')
+      .insert([newExam]);
+    
+    if (error) {
+      console.error(error);
+    } else {
       setIsAddModalOpen(false);
       setNewExam({ title: '', date: '', description: '' });
-    } catch (err) {
-      console.error("Error adding exam:", err);
     }
   };
 
+  // Not Yükleme (Supabase Storage + Database)
   const handleAddNote = async (e) => {
     e.preventDefault();
-    if (!newNote.title || !newNote.content || !selectedExam || !user || !db) return;
+    if (!newNote.title || !newNote.file || !selectedExam) return;
 
+    setUploading(true);
     try {
-      const examDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exams', selectedExam.id);
-      const noteObj = {
-        id: crypto.randomUUID(),
-        title: newNote.title,
-        content: newNote.content,
-        author: user.uid,
-        date: new Date().toISOString()
-      };
-      
-      await updateDoc(examDocRef, {
-        notes: arrayUnion(noteObj)
-      });
+      const fileExt = newNote.file.name.split('.').pop();
+      const fileName = `${Math.random()}.${fileExt}`;
+      const filePath = `${selectedExam.id}/${fileName}`;
 
-      setSelectedExam(prev => ({
-        ...prev,
-        notes: [...(prev.notes || []), noteObj]
-      }));
-      setNewNote({ title: '', content: '' });
+      // 1. Storage bucket'a yükle ('notes' bucket'ı panelden Public olarak oluşturulmalı)
+      const { error: uploadError } = await supabase.storage
+        .from('notes')
+        .upload(filePath, newNote.file);
+
+      if (uploadError) throw uploadError;
+
+      // 2. Genel erişim URL'ini al
+      const { data: { publicUrl } } = supabase.storage
+        .from('notes')
+        .getPublicUrl(filePath);
+
+      // 3. Veritabanına not bilgisini ekle
+      const { error: dbError } = await supabase
+        .from('notes')
+        .insert([{
+          exam_id: selectedExam.id,
+          title: newNote.title,
+          file_url: publicUrl,
+          file_name: newNote.file.name
+        }]);
+      
+      if (dbError) throw dbError;
+      
+      setNewNote({ title: '', file: null });
     } catch (err) {
-      console.error("Error adding note:", err);
+      console.error("Yükleme hatası:", err);
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -186,41 +149,43 @@ export default function App() {
     if (adminPassword === 'admin123') {
       setRole('admin');
       setShowAdminLogin(false);
-      setAdminPassword('');
-    } else {
-      setAdminPassword('');
     }
+    setAdminPassword('');
   };
 
-  const renderCalendarDays = () => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
+  // Takvim Yardımcıları
+  const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
+  const firstDay = (y, m) => {
+    const d = new Date(y, m, 1).getDay();
+    return d === 0 ? 6 : d - 1; // Pazartesi başlangıçlı
+  };
+
+  const renderCalendar = () => {
+    const y = currentDate.getFullYear();
+    const m = currentDate.getMonth();
     const days = [];
-    const totalDays = daysInMonth(year, month);
-    const startDay = firstDayOfMonth(year, month);
+    const total = daysInMonth(y, m);
+    const start = firstDay(y, m);
 
-    for (let i = 0; i < startDay; i++) {
-      days.push(<div key={`empty-${i}`} className="h-24 border border-gray-100 bg-gray-50/50"></div>);
-    }
-
-    for (let d = 1; d <= totalDays; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    for (let i = 0; i < start; i++) days.push(<div key={`e-${i}`} className="h-24 border border-slate-50 bg-slate-50/20"></div>);
+    for (let d = 1; d <= total; d++) {
+      const dateStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayExams = exams.filter(e => e.date === dateStr);
       const isToday = new Date().toISOString().split('T')[0] === dateStr;
 
       days.push(
-        <div key={d} className={`h-24 border border-gray-100 p-1 relative hover:bg-blue-50 transition-colors cursor-default ${isToday ? 'bg-blue-50/30' : ''}`}>
-          <span className={`text-sm font-medium ${isToday ? 'bg-blue-600 text-white w-6 h-6 flex items-center justify-center rounded-full' : 'text-gray-500'}`}>
+        <div key={d} className={`h-24 border border-slate-100 p-1 relative hover:bg-blue-50/50 transition-colors ${isToday ? 'bg-blue-50/30' : ''}`}>
+          <span className={`text-[10px] font-bold ${isToday ? 'bg-blue-600 text-white w-5 h-5 flex items-center justify-center rounded-full' : 'text-slate-400'}`}>
             {d}
           </span>
-          <div className="mt-1 space-y-1 overflow-y-auto max-h-16">
-            {dayExams.map(exam => (
-              <button
-                key={exam.id}
-                onClick={() => setSelectedExam(exam)}
-                className="w-full text-left text-[10px] p-1 bg-white border border-blue-200 rounded text-blue-700 truncate hover:shadow-sm"
+          <div className="mt-1 space-y-1 overflow-hidden">
+            {dayExams.map(ex => (
+              <button 
+                key={ex.id} 
+                onClick={() => setSelectedExam(ex)}
+                className="w-full text-[9px] text-left p-1 bg-white border border-blue-200 rounded text-blue-700 truncate shadow-sm hover:shadow-md transition-shadow"
               >
-                {exam.title}
+                {ex.title}
               </button>
             ))}
           </div>
@@ -233,62 +198,49 @@ export default function App() {
   if (!role) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-        <div className="max-w-4xl w-full">
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center justify-center p-4 bg-blue-600 text-white rounded-3xl mb-6 shadow-xl shadow-blue-200">
-              <BookOpen size={48} />
-            </div>
-            <h1 className="text-4xl font-black text-slate-900 mb-2">Sınav Takip Portalı</h1>
-            <p className="text-slate-500 text-lg">Hoş geldiniz, devam etmek için giriş türünü seçin.</p>
+        <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 text-center border border-slate-100">
+          <div className="w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-xl shadow-blue-200">
+            <BookOpen size={40} />
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <h1 className="text-3xl font-black text-slate-900 mb-2 tracking-tight">Sınav Portalı</h1>
+          <p className="text-slate-400 text-sm mb-12">Supabase Storage ile notlarınızı güvenle saklayın.</p>
+          
+          <div className="space-y-4">
             <button 
               onClick={() => setRole('student')}
-              className="group bg-white p-10 rounded-3xl border-2 border-transparent hover:border-blue-500 shadow-xl hover:shadow-2xl transition-all text-left flex flex-col items-center md:items-start"
+              className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 hover:scale-[1.02] active:scale-95"
             >
-              <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                <User size={32} />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-800 mb-2">Giriş Yap</h2>
-              <p className="text-slate-500 mb-6">Sınav tarihlerine bakabilir ve ders notlarını paylaşabilirsiniz.</p>
-              <span className="mt-auto text-blue-600 font-bold flex items-center gap-2">Devam Et <ChevronRight size={18} /></span>
+              <User size={20} /> Öğrenci Olarak Giriş
             </button>
-
             <button 
               onClick={() => setShowAdminLogin(true)}
-              className="group bg-white p-10 rounded-3xl border-2 border-transparent hover:border-indigo-500 shadow-xl hover:shadow-2xl transition-all text-left flex flex-col items-center md:items-start"
+              className="w-full bg-white border-2 border-slate-100 text-slate-600 py-4 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-slate-50 transition-all hover:scale-[1.02] active:scale-95"
             >
-              <div className="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                <Lock size={32} />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-800 mb-2">Admin Paneli</h2>
-              <p className="text-slate-500 mb-6">Sadece yetkili kullanıcılar içindir. Sınav ekleme ve yönetim yetkisi verir.</p>
-              <span className="mt-auto text-indigo-600 font-bold flex items-center gap-2">Yönetime Geç <ChevronRight size={18} /></span>
+              <Lock size={20} /> Admin Paneli
             </button>
           </div>
         </div>
 
         {showAdminLogin && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl p-8">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-[2rem] w-full max-w-sm p-8 shadow-2xl">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold flex items-center gap-2"><ShieldCheck className="text-indigo-600" /> Admin Doğrulama</h3>
+                <h3 className="font-bold text-slate-800">Yönetici Girişi</h3>
                 <button onClick={() => setShowAdminLogin(false)} className="text-slate-400 hover:text-slate-600"><X /></button>
               </div>
               <form onSubmit={handleAdminLogin} className="space-y-4">
-                <p className="text-sm text-slate-500 mb-4">Lütfen yönetici şifresini giriniz (Varsayılan: admin123)</p>
-                <input 
-                  autoFocus
-                  type="password"
-                  value={adminPassword}
-                  onChange={(e) => setAdminPassword(e.target.value)}
-                  placeholder="Şifre"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
-                <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all">
-                  Giriş Yap
-                </button>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Admin Şifresi</label>
+                  <input 
+                    type="password" 
+                    autoFocus
+                    placeholder="Varsayılan: admin123" 
+                    value={adminPassword}
+                    onChange={e => setAdminPassword(e.target.value)}
+                    className="w-full px-5 py-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  />
+                </div>
+                <button className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-black transition-all shadow-lg">Giriş Yap</button>
               </form>
             </div>
           </div>
@@ -297,202 +249,201 @@ export default function App() {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20">
-      <nav className="bg-white border-b border-slate-100 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
-        <div className="flex items-center gap-2 font-bold text-blue-600">
-          <BookOpen size={24} />
-          <span className="hidden md:inline">Sınav Takip</span>
+    <div className="min-h-screen bg-[#F8FAFC] pb-20 font-sans selection:bg-blue-100 selection:text-blue-900">
+      {/* Navbar */}
+      <nav className="bg-white/80 backdrop-blur-md border-b border-slate-100 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
+        <div className="flex items-center gap-3">
+          <div className="bg-blue-600 p-2 rounded-lg text-white shadow-md shadow-blue-100">
+            <BookOpen size={20} />
+          </div>
+          <span className="font-black text-slate-800 tracking-tight">SINAV TAKİP</span>
         </div>
         <div className="flex items-center gap-4">
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold ${role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-blue-100 text-blue-700'}`}>
-            {role === 'admin' ? <ShieldCheck size={14} /> : <User size={14} />}
-            {role === 'admin' ? 'YÖNETİCİ' : 'ÖĞRENCİ'}
+          <div className={`px-3 py-1 rounded-full text-[10px] font-black tracking-tighter ${role === 'admin' ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>
+            {role === 'admin' ? 'YÖNETİCİ MODU' : 'ÖĞRENCİ MODU'}
           </div>
-          <button 
-            onClick={() => { setRole(null); setSelectedExam(null); }}
-            className="flex items-center gap-1 text-slate-500 hover:text-red-600 text-sm font-medium transition-colors"
-          >
-            <LogOut size={16} /> Çıkış
+          <button onClick={() => setRole(null)} className="flex items-center gap-2 text-slate-400 hover:text-red-500 transition-colors text-sm font-bold">
+            <LogOut size={16} /> <span className="hidden md:inline">Çıkış</span>
           </button>
         </div>
       </nav>
 
-      <header className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white py-12 px-4 shadow-lg mb-8">
-        <div className="max-w-5xl mx-auto text-center">
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 inline-block border border-white/20">
+      {/* Countdown Hero */}
+      <header className="bg-slate-900 text-white py-16 px-4 mb-10 overflow-hidden relative">
+        <div className="absolute top-0 left-0 w-full h-full opacity-10 pointer-events-none">
+           <div className="absolute top-10 left-10 w-40 h-40 bg-blue-500 rounded-full blur-3xl"></div>
+           <div className="absolute bottom-10 right-10 w-60 h-60 bg-indigo-500 rounded-full blur-3xl"></div>
+        </div>
+        <div className="max-w-4xl mx-auto text-center relative z-10">
+          <div className="bg-white/5 backdrop-blur-xl rounded-[2.5rem] p-10 border border-white/10 inline-block shadow-2xl">
             {nextExam ? (
               <div className="flex flex-col items-center">
-                <span className="text-blue-100 text-sm uppercase tracking-widest font-semibold mb-1">En Yakın Sınav: {nextExam.title}</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-5xl font-black text-white">{daysToNextExam}</span>
-                  <span className="text-2xl font-light text-blue-100">gün kaldı</span>
-                </div>
-                <div className="mt-3 flex items-center gap-2 text-blue-200 text-sm">
-                  <Clock size={16} />
-                  <span>{new Date(nextExam.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                <span className="text-blue-400 text-[10px] font-black uppercase tracking-[0.3em] mb-4">{nextExam.title}</span>
+                <div className="flex items-center gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-7xl font-black leading-none">{daysToNextExam}</span>
+                    <span className="text-xs font-bold text-slate-500 mt-2 uppercase">Gün Kaldı</span>
+                  </div>
                 </div>
               </div>
             ) : (
-              <p className="text-lg text-blue-100">Planlanmış bir sınav yok. 🎉</p>
+              <p className="text-slate-400 italic text-sm">Yakın zamanda planlanmış bir sınav bulunmuyor.</p>
             )}
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <section className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="p-6 flex items-center justify-between border-b border-slate-100">
-            <div className="flex items-center gap-4">
-              <h2 className="text-xl font-bold text-slate-800">
-                {currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
-              </h2>
-              <div className="flex bg-slate-100 rounded-lg p-1">
-                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-1 hover:bg-white rounded transition-all"><ChevronLeft size={20}/></button>
-                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-1 hover:bg-white rounded transition-all"><ChevronRight size={20}/></button>
+      <main className="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-3 gap-10">
+        {/* Calendar Section */}
+        <section className="lg:col-span-2 bg-white rounded-[2rem] shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-8 flex items-center justify-between border-b border-slate-50">
+            <div className="flex items-center gap-6">
+              <h2 className="font-black text-slate-900 text-xl capitalize">{currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}</h2>
+              <div className="flex bg-slate-100 rounded-xl p-1">
+                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-2 hover:bg-white rounded-lg transition-all"><ChevronLeft size={18}/></button>
+                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-2 hover:bg-white rounded-lg transition-all"><ChevronRight size={18}/></button>
               </div>
             </div>
-            
             {role === 'admin' && (
-              <button 
-                onClick={() => setIsAddModalOpen(true)}
-                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-md"
-              >
-                <Plus size={18} />
-                Yeni Sınav
+              <button onClick={() => setIsAddModalOpen(true)} className="bg-blue-600 text-white px-5 py-3 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95">
+                <Plus size={18}/> Sınav Planla
               </button>
             )}
           </div>
-          
-          <div className="grid grid-cols-7 text-center border-b border-slate-100 bg-slate-50/50">
-            {['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map(day => (
-              <div key={day} className="py-3 text-xs font-bold text-slate-400 uppercase tracking-wider">{day}</div>
-            ))}
+          <div className="grid grid-cols-7 text-center bg-slate-50/50 py-3 border-b border-slate-50">
+            {['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map(day => <div key={day} className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{day}</div>)}
           </div>
-          
           <div className="grid grid-cols-7 auto-rows-fr">
-            {renderCalendarDays()}
+            {renderCalendar()}
           </div>
         </section>
 
-        <section className="space-y-6">
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
-            <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <CalendarIcon size={20} className="text-blue-600" />
-              Yaklaşan Sınavlar
-            </h3>
-            <div className="space-y-3">
-              {exams
+        {/* List Section */}
+        <section className="space-y-8">
+          <div className="bg-white rounded-[2rem] shadow-sm border border-slate-100 p-8">
+            <h3 className="font-black text-slate-900 flex items-center gap-3 mb-8"><CalendarIcon className="text-blue-600" size={22}/> Yaklaşanlar</h3>
+            <div className="space-y-4">
+              {exams.length > 0 ? exams
                 .filter(e => new Date(e.date) >= new Date().setHours(0,0,0,0))
                 .sort((a,b) => new Date(a.date) - new Date(b.date))
-                .slice(0, 5)
-                .map(exam => (
-                  <div 
-                    key={exam.id} 
-                    onClick={() => setSelectedExam(exam)}
-                    className="p-4 rounded-xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/30 cursor-pointer transition-all group"
-                  >
-                    <div className="flex justify-between items-start mb-1">
-                      <span className="font-bold text-slate-800 group-hover:text-blue-700">{exam.title}</span>
-                      <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-1 rounded-full uppercase tracking-tighter">
-                        {Math.ceil((new Date(exam.date) - new Date()) / (1000 * 60 * 60 * 24))} Gün
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-500">{new Date(exam.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })}</p>
+                .map(ex => (
+                <div 
+                  key={ex.id} 
+                  onClick={() => setSelectedExam(ex)} 
+                  className="p-5 rounded-2xl border border-slate-50 hover:border-blue-100 hover:bg-blue-50/20 cursor-pointer transition-all group flex items-center justify-between"
+                >
+                  <div className="overflow-hidden">
+                    <span className="block font-bold text-slate-800 text-sm group-hover:text-blue-700 transition-colors truncate">{ex.title}</span>
+                    <span className="text-[10px] text-slate-400 font-medium">{new Date(ex.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })}</span>
                   </div>
-                ))}
-              {exams.length === 0 && <p className="text-sm text-slate-400 text-center py-4">Sınav bulunamadı.</p>}
+                  <ChevronRight size={16} className="text-slate-300 group-hover:text-blue-400" />
+                </div>
+              )) : <p className="text-center text-slate-400 text-xs py-12 italic">Henüz sınav girilmemiş.</p>}
             </div>
           </div>
         </section>
       </main>
 
-      {isAddModalOpen && role === 'admin' && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-indigo-50">
-              <h3 className="text-xl font-bold text-indigo-900">Sınav Tanımla</h3>
+      {/* Admin Add Exam Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-md shadow-2xl p-10">
+            <div className="flex justify-between items-center mb-8">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight">Yeni Sınav</h3>
               <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X /></button>
             </div>
-            <form onSubmit={handleAddExam} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Ders Adı</label>
-                <input required type="text" value={newExam.title} onChange={e => setNewExam({...newExam, title: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none" placeholder="Örn: Fizik-101"/>
+            <form onSubmit={handleAddExam} className="space-y-6">
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Ders Adı</label>
+                <input required type="text" placeholder="Matematik, Fizik vb." value={newExam.title} onChange={e => setNewExam({...newExam, title: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Tarih</label>
-                <input required type="date" value={newExam.date} onChange={e => setNewExam({...newExam, date: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none"/>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Sınav Tarihi</label>
+                <input required type="date" value={newExam.date} onChange={e => setNewExam({...newExam, date: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Detaylar</label>
-                <textarea value={newExam.description} onChange={e => setNewExam({...newExam, description: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none h-24 resize-none" placeholder="Sınav kapsamı..."/>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Ek Detaylar</label>
+                <textarea placeholder="Konular, mekan bilgisi..." value={newExam.description} onChange={e => setNewExam({...newExam, description: e.target.value})} className="w-full px-5 py-4 rounded-xl bg-slate-50 border border-slate-100 outline-none focus:ring-2 focus:ring-blue-500 h-28 resize-none" />
               </div>
-              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-all">Sınavı Yayınla</button>
+              <button className="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all active:scale-95">Takvime İşle</button>
             </form>
           </div>
         </div>
       )}
 
+      {/* Details & Storage Modal */}
       {selectedExam && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-blue-50">
-              <div>
-                <span className="text-xs font-bold text-blue-600 uppercase tracking-widest">{new Date(selectedExam.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-                <h3 className="text-2xl font-bold text-slate-900">{selectedExam.title}</h3>
-                {selectedExam.description && <p className="text-slate-600 mt-1">{selectedExam.description}</p>}
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-3xl max-h-[90vh] shadow-2xl overflow-hidden flex flex-col border border-slate-100">
+            <div className="p-10 border-b border-slate-50 bg-slate-50/30">
+              <div className="flex justify-between items-start">
+                <div>
+                  <span className="text-[10px] font-black text-blue-600 uppercase tracking-[0.2em] mb-2 block">{new Date(selectedExam.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                  <h3 className="text-4xl font-black text-slate-900 tracking-tight leading-none">{selectedExam.title}</h3>
+                </div>
+                <button onClick={() => setSelectedExam(null)} className="p-3 hover:bg-white rounded-full transition-all shadow-sm"><X /></button>
               </div>
-              <button onClick={() => setSelectedExam(null)} className="text-slate-400 hover:text-slate-600 bg-white p-2 rounded-full"><X /></button>
+              <p className="text-slate-500 mt-6 text-sm leading-relaxed max-w-xl">{selectedExam.description || "Bu sınav için ek bir açıklama girilmemiş."}</p>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-              <div className="space-y-4">
-                <h4 className="text-lg font-bold flex items-center gap-2"><FileText size={20} className="text-blue-600" /> Paylaşılan Notlar</h4>
-                <div className="space-y-3">
-                  {selectedExam.notes && selectedExam.notes.length > 0 ? (
-                    selectedExam.notes.map(note => (
-                      <div key={note.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50">
-                        <h5 className="font-bold text-slate-800">{note.title}</h5>
-                        <p className="text-sm text-slate-600 mt-2 line-clamp-3">{note.content}</p>
-                        <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400">
-                          <span>{new Date(note.date).toLocaleDateString('tr-TR')}</span>
-                          <button 
-                            onClick={() => {
-                              const blob = new Blob([note.content], { type: 'text/plain' });
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = `${note.title}.txt`;
-                              a.click();
-                            }}
-                            className="flex items-center gap-1 text-blue-600 font-bold"
-                          >
-                            <Download size={12} /> İndir
-                          </button>
-                        </div>
+            <div className="flex-1 overflow-y-auto p-10 grid grid-cols-1 md:grid-cols-2 gap-12">
+              {/* Not Listesi */}
+              <div>
+                <h4 className="font-black text-slate-900 flex items-center gap-3 mb-6 text-lg"><FileText size={20} className="text-blue-600"/> Dökümanlar</h4>
+                <div className="space-y-4">
+                  {selectedExam.notes?.length > 0 ? selectedExam.notes.map(note => (
+                    <div key={note.id} className="p-5 rounded-2xl bg-white border border-slate-100 flex items-center justify-between group hover:border-blue-200 transition-all shadow-sm hover:shadow-md">
+                      <div className="overflow-hidden mr-4">
+                        <p className="font-bold text-sm text-slate-800 truncate">{note.title}</p>
+                        <p className="text-[10px] text-slate-400 truncate mt-1">{note.file_name}</p>
                       </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-400 text-center py-6 border border-dashed rounded-xl">Henüz not yok.</p>
+                      <a 
+                        href={note.file_url} 
+                        target="_blank" 
+                        rel="noreferrer" 
+                        className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all shrink-0"
+                        title="İndir"
+                      >
+                        <Download size={18}/>
+                      </a>
+                    </div>
+                  )) : (
+                    <div className="text-center py-16 border-2 border-dashed border-slate-100 rounded-[2rem] bg-slate-50/50">
+                       <FileUp size={32} className="mx-auto text-slate-200 mb-4" />
+                       <p className="text-xs text-slate-400 font-medium">Henüz dosya paylaşılmadı.</p>
+                    </div>
                   )}
                 </div>
               </div>
 
-              <div className="space-y-4">
-                <h4 className="text-lg font-bold flex items-center gap-2"><Upload size={20} className="text-blue-600" /> Not Yükle</h4>
-                <form onSubmit={handleAddNote} className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
-                  <input required type="text" value={newNote.title} onChange={e => setNewNote({...newNote, title: e.target.value})} className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none text-sm" placeholder="Not başlığı"/>
-                  <textarea required value={newNote.content} onChange={e => setNewNote({...newNote, content: e.target.value})} className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none h-32 text-sm resize-none" placeholder="Not içeriği veya link..."/>
-                  <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-all text-sm">Notu Paylaş</button>
+              {/* Yükleme Formu */}
+              <div>
+                <h4 className="font-black text-slate-900 flex items-center gap-3 mb-6 text-lg"><Upload size={20} className="text-blue-600"/> Not Paylaş</h4>
+                <form onSubmit={handleAddNote} className="space-y-6 bg-slate-50/50 p-8 rounded-[2rem] border border-slate-100">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Not Başlığı</label>
+                    <input required placeholder="Konu Özetleri, Formüller vb." value={newNote.title} onChange={e => setNewNote({...newNote, title: e.target.value})} className="w-full px-4 py-3 rounded-xl text-sm outline-none border border-slate-200 focus:ring-2 focus:ring-blue-500" />
+                  </div>
+                  
+                  <div className="relative h-28 border-2 border-dashed border-slate-200 rounded-[1.5rem] flex items-center justify-center hover:border-blue-400 transition-colors group bg-white">
+                    <input required type="file" onChange={e => setNewNote({...newNote, file: e.target.files[0]})} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                    <div className="text-center p-4">
+                      <FileUp size={24} className="mx-auto text-slate-300 group-hover:text-blue-500 mb-2 transition-colors" />
+                      <p className="text-[10px] text-slate-500 truncate px-2 font-medium">
+                        {newNote.file ? <span className="text-blue-600 font-bold">{newNote.file.name}</span> : "Dosya Seç veya Sürükle"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button 
+                    disabled={uploading} 
+                    className="w-full bg-slate-900 text-white py-4 rounded-xl text-sm font-bold hover:bg-black disabled:opacity-50 flex items-center justify-center gap-3 shadow-lg transition-all active:scale-95"
+                  >
+                    {uploading ? <><Loader2 size={16} className="animate-spin"/> Yükleniyor...</> : "Supabase'e Gönder"}
+                  </button>
                 </form>
+                <p className="text-[10px] text-slate-400 mt-4 text-center">Maksimum dosya boyutu 50MB.</p>
               </div>
             </div>
           </div>
