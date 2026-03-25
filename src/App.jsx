@@ -23,9 +23,16 @@ const runtimeSupabaseUrl = typeof globalThis !== 'undefined'
 const runtimeSupabaseAnonKey = typeof globalThis !== 'undefined'
   ? (globalThis.__supabase_anon_key || globalThis.SUPABASE_ANON_KEY)
   : '';
+const storedSupabaseUrl = typeof globalThis !== 'undefined' && globalThis.localStorage
+  ? globalThis.localStorage.getItem('SUPABASE_URL')
+  : '';
+const storedSupabaseAnonKey = typeof globalThis !== 'undefined' && globalThis.localStorage
+  ? globalThis.localStorage.getItem('SUPABASE_ANON_KEY')
+  : '';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || runtimeSupabaseUrl || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || runtimeSupabaseAnonKey || '';
-const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || runtimeSupabaseAnonKey || storedSupabaseAnonKey || '';
+const resolvedSupabaseUrl = supabaseUrl || storedSupabaseUrl || '';
+const hasSupabaseConfig = Boolean(resolvedSupabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
 
 export default function App() {
@@ -41,6 +48,8 @@ export default function App() {
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [configUrl, setConfigUrl] = useState(resolvedSupabaseUrl);
+  const [configKey, setConfigKey] = useState(supabaseAnonKey);
 
   const getSupabaseHeaders = (preferRepresentation = false) => ({
     apikey: supabaseAnonKey,
@@ -51,11 +60,11 @@ export default function App() {
 
   const fetchSupabaseExams = async () => {
     const [examRes, noteRes] = await Promise.all([
-      fetch(`${supabaseUrl}/rest/v1/exams?select=*&order=date.asc`, {
+      fetch(`${resolvedSupabaseUrl}/rest/v1/exams?select=*&order=date.asc`, {
         method: 'GET',
         headers: getSupabaseHeaders(),
       }),
-      fetch(`${supabaseUrl}/rest/v1/notes?select=*&order=created_at.desc`, {
+      fetch(`${resolvedSupabaseUrl}/rest/v1/notes?select=*&order=created_at.desc`, {
         method: 'GET',
         headers: getSupabaseHeaders(),
       }),
@@ -95,7 +104,7 @@ export default function App() {
   const uploadNoteFileToSupabase = async (file) => {
     const safeName = file.name.replace(/\s+/g, '_');
     const filePath = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-    const uploadRes = await fetch(`${supabaseUrl}/storage/v1/object/${supabaseBucket}/${filePath}`, {
+    const uploadRes = await fetch(`${resolvedSupabaseUrl}/storage/v1/object/${supabaseBucket}/${filePath}`, {
       method: 'POST',
       headers: {
         apikey: supabaseAnonKey,
@@ -110,7 +119,7 @@ export default function App() {
       throw new Error(`Supabase storage upload failed: ${uploadRes.status}`);
     }
 
-    return `${supabaseUrl}/storage/v1/object/public/${supabaseBucket}/${filePath}`;
+    return `${resolvedSupabaseUrl}/storage/v1/object/public/${supabaseBucket}/${filePath}`;
   };
 
   // Basit kullanıcı başlatma
@@ -184,7 +193,7 @@ export default function App() {
 
     try {
       if (hasSupabaseConfig) {
-        const res = await fetch(`${supabaseUrl}/rest/v1/exams`, {
+        const res = await fetch(`${resolvedSupabaseUrl}/rest/v1/exams`, {
           method: 'POST',
           headers: getSupabaseHeaders(true),
           body: JSON.stringify({
@@ -219,7 +228,7 @@ export default function App() {
     try {
       if (hasSupabaseConfig) {
         const fileUrl = await uploadNoteFileToSupabase(newNote.file);
-        const insertRes = await fetch(`${supabaseUrl}/rest/v1/notes`, {
+        const insertRes = await fetch(`${resolvedSupabaseUrl}/rest/v1/notes`, {
           method: 'POST',
           headers: getSupabaseHeaders(true),
           body: JSON.stringify({
@@ -273,6 +282,14 @@ export default function App() {
     } else {
       setAdminPassword('');
     }
+  };
+
+  const handleSaveSupabaseConfig = (e) => {
+    e.preventDefault();
+    if (!configUrl || !configKey) return;
+    localStorage.setItem('SUPABASE_URL', configUrl.trim());
+    localStorage.setItem('SUPABASE_ANON_KEY', configKey.trim());
+    window.location.reload();
   };
 
   const renderCalendarDays = () => {
@@ -432,9 +449,9 @@ export default function App() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {statusMessage && (
+        {(statusMessage || !hasSupabaseConfig) && (
           <div className="lg:col-span-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm">
-            {statusMessage}
+            {statusMessage || 'Supabase ayarı eksik. Aşağıdan URL ve ANON KEY kaydedin.'}
           </div>
         )}
         <section className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -589,6 +606,35 @@ export default function App() {
                 </form>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {!hasSupabaseConfig && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl p-6">
+            <h3 className="text-xl font-bold mb-4">Supabase Bağlantı Ayarları</h3>
+            <form onSubmit={handleSaveSupabaseConfig} className="space-y-4">
+              <input
+                type="url"
+                required
+                value={configUrl}
+                onChange={(e) => setConfigUrl(e.target.value)}
+                placeholder="https://xxxx.supabase.co"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none"
+              />
+              <input
+                type="text"
+                required
+                value={configKey}
+                onChange={(e) => setConfigKey(e.target.value)}
+                placeholder="supabase anon key"
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none"
+              />
+              <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all">
+                Ayarları Kaydet ve Yenile
+              </button>
+            </form>
           </div>
         </div>
       )}
