@@ -54,6 +54,8 @@ export default function App() {
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [isUploadingNote, setIsUploadingNote] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [configUrl, setConfigUrl] = useState(resolvedSupabaseUrl);
   const [configKey, setConfigKey] = useState(supabaseAnonKey);
 
@@ -107,23 +109,34 @@ export default function App() {
     }));
   };
 
-  const uploadNoteFileToSupabase = async (file) => {
+  const uploadNoteFileToSupabase = async (file, onProgress) => {
     const safeName = file.name.replace(/\s+/g, '_');
     const filePath = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-    const uploadRes = await fetch(`${resolvedSupabaseUrl}/storage/v1/object/${supabaseBucket}/${filePath}`, {
-      method: 'POST',
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${supabaseAnonKey}`,
-        'x-upsert': 'false',
-        'Content-Type': file.type || 'application/octet-stream',
-      },
-      body: file,
-    });
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${resolvedSupabaseUrl}/storage/v1/object/${supabaseBucket}/${filePath}`);
+      xhr.setRequestHeader('apikey', supabaseAnonKey);
+      xhr.setRequestHeader('Authorization', `Bearer ${supabaseAnonKey}`);
+      xhr.setRequestHeader('x-upsert', 'false');
+      xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
 
-    if (!uploadRes.ok) {
-      throw new Error(`Supabase storage upload failed: ${uploadRes.status}`);
-    }
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable || !onProgress) return;
+        const percent = Math.round((event.loaded / event.total) * 100);
+        onProgress(percent);
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve();
+        } else {
+          reject(new Error(`Supabase storage upload failed: ${xhr.status}`));
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Supabase storage upload failed: network error'));
+      xhr.send(file);
+    });
 
     return `${resolvedSupabaseUrl}/storage/v1/object/public/${supabaseBucket}/${filePath}`;
   };
@@ -233,7 +246,9 @@ export default function App() {
 
     try {
       if (hasSupabaseConfig) {
-        const fileUrl = await uploadNoteFileToSupabase(newNote.file);
+        setIsUploadingNote(true);
+        setUploadProgress(0);
+        const fileUrl = await uploadNoteFileToSupabase(newNote.file, setUploadProgress);
         const insertRes = await fetch(`${resolvedSupabaseUrl}/rest/v1/notes`, {
           method: 'POST',
           headers: getSupabaseHeaders(true),
@@ -273,9 +288,12 @@ export default function App() {
         return;
       }
       setNewNote({ title: '', file: null });
+      setUploadProgress(0);
     } catch (err) {
       console.error("Error adding note:", err);
       setStatusMessage(`Not yükleme hatası: ${err.message}`);
+    } finally {
+      setIsUploadingNote(false);
     }
   };
 
@@ -306,7 +324,7 @@ export default function App() {
 
   const handleAdminLogin = (e) => {
     e.preventDefault();
-    if (adminPassword === 'admin123') {
+    if (adminPassword === 'admin4321') {
       setRole('admin');
       setShowAdminLogin(false);
       setAdminPassword('');
@@ -408,7 +426,7 @@ export default function App() {
                 <button onClick={() => setShowAdminLogin(false)} className="text-slate-400 hover:text-slate-600"><X /></button>
               </div>
               <form onSubmit={handleAdminLogin} className="space-y-4">
-                <p className="text-sm text-slate-500 mb-4">Lütfen yönetici şifresini giriniz (Varsayılan: admin123)</p>
+                <p className="text-sm text-slate-500 mb-4">Lütfen yönetici şifresini giriniz.</p>
                 <input 
                   autoFocus
                   type="password"
@@ -644,6 +662,17 @@ export default function App() {
                     onChange={e => setNewNote({ ...newNote, file: e.target.files?.[0] || null })}
                     className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none text-sm bg-white"
                   />
+                  {isUploadingNote && (
+                    <div className="space-y-2">
+                      <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-600 transition-all"
+                          style={{ width: `${uploadProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-slate-500 text-right">%{uploadProgress}</p>
+                    </div>
+                  )}
                   <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-all text-sm">Notu Paylaş</button>
                 </form>
               </div>
