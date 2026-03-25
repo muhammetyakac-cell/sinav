@@ -17,8 +17,14 @@ import {
 } from 'lucide-react';
 
 // Supabase Yapılandırması
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
+const runtimeSupabaseUrl = typeof globalThis !== 'undefined'
+  ? (globalThis.__supabase_url || globalThis.SUPABASE_URL)
+  : '';
+const runtimeSupabaseAnonKey = typeof globalThis !== 'undefined'
+  ? (globalThis.__supabase_anon_key || globalThis.SUPABASE_ANON_KEY)
+  : '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || runtimeSupabaseUrl || '';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || runtimeSupabaseAnonKey || '';
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
 
@@ -34,6 +40,7 @@ export default function App() {
   const [newNote, setNewNote] = useState({ title: '', file: null });
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
 
   const getSupabaseHeaders = (preferRepresentation = false) => ({
     apikey: supabaseAnonKey,
@@ -125,6 +132,7 @@ export default function App() {
           setExams(examData);
         } catch (error) {
           console.error("Supabase error:", error);
+          setStatusMessage('Supabase bağlantı hatası: Sınavlar yüklenemedi.');
         }
         setLoading(false);
       };
@@ -185,9 +193,14 @@ export default function App() {
             description: newExam.description,
           }),
         });
-        if (!res.ok) throw new Error(`Supabase add exam failed: ${res.status}`);
+        if (!res.ok) {
+          const errorText = await res.text();
+          throw new Error(`Supabase add exam failed (${res.status}): ${errorText}`);
+        }
         await refreshSupabaseExams();
+        setStatusMessage('Sınav başarıyla yayınlandı.');
       } else {
+        setStatusMessage('Supabase ayarı eksik. VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY tanımlayın.');
         return;
       }
 
@@ -195,6 +208,7 @@ export default function App() {
       setNewExam({ title: '', date: '', description: '' });
     } catch (err) {
       console.error("Error adding exam:", err);
+      setStatusMessage(`Sınav yayınlanamadı: ${err.message}`);
     }
   };
 
@@ -238,12 +252,15 @@ export default function App() {
               : exam
           )
         );
+        setStatusMessage('Not başarıyla yüklendi.');
       } else {
+        setStatusMessage('Supabase ayarı eksik. Not yüklenemedi.');
         return;
       }
       setNewNote({ title: '', file: null });
     } catch (err) {
       console.error("Error adding note:", err);
+      setStatusMessage(`Not yükleme hatası: ${err.message}`);
     }
   };
 
@@ -415,6 +432,11 @@ export default function App() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {statusMessage && (
+          <div className="lg:col-span-3 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-xl text-sm">
+            {statusMessage}
+          </div>
+        )}
         <section className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-6 flex items-center justify-between border-b border-slate-100">
             <div className="flex items-center gap-4">
