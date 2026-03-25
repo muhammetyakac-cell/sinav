@@ -34,13 +34,23 @@ import {
 } from 'lucide-react';
 
 // Firebase ve Uygulama Yapılandırması (Hata denetimli)
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
+const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? (typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config)
-  : {};
+  : null;
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+const hasFirebaseConfig = Boolean(firebaseConfig && firebaseConfig.apiKey);
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
+
+let auth = null;
+let db = null;
+
+if (hasFirebaseConfig) {
+  const app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+}
 
 // Rule 1 & Firestore Fix: appId içindeki '/' karakterleri segment hatasına yol açtığı için temizlenmelidir
 const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'exam-tracker-app';
@@ -59,8 +69,43 @@ export default function App() {
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
 
+  const getSupabaseHeaders = (preferRepresentation = false) => ({
+    apikey: supabaseAnonKey,
+    Authorization: `Bearer ${supabaseAnonKey}`,
+    'Content-Type': 'application/json',
+    ...(preferRepresentation ? { Prefer: 'return=representation' } : {}),
+  });
+
+  const fetchSupabaseExams = async () => {
+    const res = await fetch(`${supabaseUrl}/rest/v1/exams?select=*&order=date.asc`, {
+      method: 'GET',
+      headers: getSupabaseHeaders(),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Supabase fetch failed: ${res.status}`);
+    }
+
+    const data = await res.json();
+    return (data || []).map((exam) => ({
+      id: String(exam.id),
+      title: exam.title,
+      date: exam.date,
+      description: exam.description || '',
+      notes: Array.isArray(exam.notes) ? exam.notes : [],
+    }));
+  };
+
   // Auth İşlemleri (Rule 3)
   useEffect(() => {
+    if (!auth) {
+      setUser({ uid: 'local-user' });
+      if (!hasSupabaseConfig) {
+        setLoading(false);
+      }
+      return;
+    }
+
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -81,23 +126,53 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    // Koleksiyon yolu: artifacts / {appId} / public / data / exams (5 segment - Tek sayı olmalı)
-    const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
-    
-    const unsubscribe = onSnapshot(examsRef, (snapshot) => {
-      const examData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setExams(examData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Firestore error:", error);
-      setLoading(false);
-    });
+    if (db) {
+      // Koleksiyon yolu: artifacts / {appId} / public / data / exams (5 segment - Tek sayı olmalı)
+      const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
+      
+      const unsubscribe = onSnapshot(examsRef, (snapshot) => {
+        const examData = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        setExams(examData);
+        setLoading(false);
+      }, (error) => {
+        console.error("Firestore error:", error);
+        setLoading(false);
+      });
 
-    return () => unsubscribe();
+      return () => unsubscribe();
+    }
+
+    if (hasSupabaseConfig) {
+      const fetchExams = async () => {
+        try {
+          const examData = await fetchSupabaseExams();
+          setExams(examData);
+        } catch (error) {
+          console.error("Supabase error:", error);
+        }
+        setLoading(false);
+      };
+
+      fetchExams();
+      return;
+    }
+
+    setExams([]);
+    setLoading(false);
   }, [user]);
+
+  const refreshSupabaseExams = async () => {
+    if (!hasSupabaseConfig) return;
+    try {
+      const examData = await fetchSupabaseExams();
+      setExams(examData);
+    } catch (error) {
+      console.error("Supabase refresh error:", error);
+    }
+  };
 
   // En yakın sınavı hesapla
   const nextExam = useMemo(() => {
@@ -127,12 +202,30 @@ export default function App() {
     if (!newExam.title || !newExam.date || role !== 'admin' || !user) return;
 
     try {
-      const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
-      await addDoc(examsRef, {
-        ...newExam,
-        notes: [],
-        createdAt: new Date().toISOString()
-      });
+      if (db) {
+        const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
+        await addDoc(examsRef, {
+          ...newExam,
+          notes: [],
+          createdAt: new Date().toISOString()
+        });
+      } else if (hasSupabaseConfig) {
+        const res = await fetch(`${supabaseUrl}/rest/v1/exams`, {
+          method: 'POST',
+          headers: getSupabaseHeaders(true),
+          body: JSON.stringify({
+            title: newExam.title,
+            date: newExam.date,
+            description: newExam.description,
+            notes: [],
+          }),
+        });
+        if (!res.ok) throw new Error(`Supabase add exam failed: ${res.status}`);
+        await refreshSupabaseExams();
+      } else {
+        return;
+      }
+
       setIsAddModalOpen(false);
       setNewExam({ title: '', date: '', description: '' });
     } catch (err) {
@@ -145,7 +238,6 @@ export default function App() {
     if (!newNote.title || !newNote.content || !selectedExam || !user) return;
 
     try {
-      const examDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exams', selectedExam.id);
       const noteObj = {
         id: crypto.randomUUID(),
         title: newNote.title,
@@ -153,15 +245,35 @@ export default function App() {
         author: user.uid,
         date: new Date().toISOString()
       };
-      
-      await updateDoc(examDocRef, {
-        notes: arrayUnion(noteObj)
-      });
+
+      if (db) {
+        const examDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exams', selectedExam.id);
+        await updateDoc(examDocRef, {
+          notes: arrayUnion(noteObj)
+        });
+      } else if (hasSupabaseConfig) {
+        const mergedNotes = [...(selectedExam.notes || []), noteObj];
+        const res = await fetch(`${supabaseUrl}/rest/v1/exams?id=eq.${selectedExam.id}`, {
+          method: 'PATCH',
+          headers: getSupabaseHeaders(),
+          body: JSON.stringify({ notes: mergedNotes }),
+        });
+        if (!res.ok) throw new Error(`Supabase add note failed: ${res.status}`);
+      } else {
+        return;
+      }
 
       setSelectedExam(prev => ({
         ...prev,
         notes: [...(prev.notes || []), noteObj]
       }));
+      setExams((prevExams) =>
+        prevExams.map((exam) =>
+          exam.id === selectedExam.id
+            ? { ...exam, notes: [...(exam.notes || []), noteObj] }
+            : exam
+        )
+      );
       setNewNote({ title: '', content: '' });
     } catch (err) {
       console.error("Error adding note:", err);
