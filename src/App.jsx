@@ -29,8 +29,13 @@ const storedSupabaseUrl = typeof globalThis !== 'undefined' && globalThis.localS
 const storedSupabaseAnonKey = typeof globalThis !== 'undefined' && globalThis.localStorage
   ? globalThis.localStorage.getItem('SUPABASE_ANON_KEY')
   : '';
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || runtimeSupabaseUrl || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || runtimeSupabaseAnonKey || storedSupabaseAnonKey || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+  || runtimeSupabaseUrl
+  || 'https://phicbgmciqrfeuwbnlrv.supabase.co';
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+  || runtimeSupabaseAnonKey
+  || storedSupabaseAnonKey
+  || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBoaWNiZ21jaXFyZmV1d2JubHJ2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0NjQxMDAsImV4cCI6MjA5MDA0MDEwMH0.6Wx-yAccwOpklSjWBz6dzS3M2awLcxId4eXBA5H2NFI';
 const resolvedSupabaseUrl = supabaseUrl || storedSupabaseUrl || '';
 const hasSupabaseConfig = Boolean(resolvedSupabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
