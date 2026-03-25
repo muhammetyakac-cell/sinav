@@ -5,7 +5,6 @@ import {
   collection, 
   addDoc, 
   onSnapshot, 
-  query, 
   doc, 
   updateDoc,
   arrayUnion
@@ -39,9 +38,10 @@ const firebaseConfig = typeof __firebase_config !== 'undefined'
   : null;
 
 const hasFirebaseConfig = Boolean(firebaseConfig && firebaseConfig.apiKey);
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || import.meta.env.SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
+const supabaseBucket = 'notes';
 
 let auth = null;
 let db = null;
@@ -65,7 +65,7 @@ export default function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedExam, setSelectedExam] = useState(null);
   const [newExam, setNewExam] = useState({ title: '', date: '', description: '' });
-  const [newNote, setNewNote] = useState({ title: '', content: '' });
+  const [newNote, setNewNote] = useState({ title: '', file: null });
   const [adminPassword, setAdminPassword] = useState('');
   const [showAdminLogin, setShowAdminLogin] = useState(false);
 
@@ -77,23 +77,67 @@ export default function App() {
   });
 
   const fetchSupabaseExams = async () => {
-    const res = await fetch(`${supabaseUrl}/rest/v1/exams?select=*&order=date.asc`, {
-      method: 'GET',
-      headers: getSupabaseHeaders(),
-    });
+    const [examRes, noteRes] = await Promise.all([
+      fetch(`${supabaseUrl}/rest/v1/exams?select=*&order=date.asc`, {
+        method: 'GET',
+        headers: getSupabaseHeaders(),
+      }),
+      fetch(`${supabaseUrl}/rest/v1/notes?select=*&order=created_at.desc`, {
+        method: 'GET',
+        headers: getSupabaseHeaders(),
+      }),
+    ]);
 
-    if (!res.ok) {
-      throw new Error(`Supabase fetch failed: ${res.status}`);
+    if (!examRes.ok) {
+      throw new Error(`Supabase exams fetch failed: ${examRes.status}`);
     }
 
-    const data = await res.json();
-    return (data || []).map((exam) => ({
+    if (!noteRes.ok) {
+      throw new Error(`Supabase notes fetch failed: ${noteRes.status}`);
+    }
+
+    const [examData, noteData] = await Promise.all([examRes.json(), noteRes.json()]);
+    const notesByExam = (noteData || []).reduce((acc, note) => {
+      const key = String(note.exam_id);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push({
+        id: String(note.id),
+        title: note.title,
+        file_url: note.file_url,
+        file_name: note.file_name,
+        date: note.created_at,
+      });
+      return acc;
+    }, {});
+
+    return (examData || []).map((exam) => ({
       id: String(exam.id),
       title: exam.title,
       date: exam.date,
       description: exam.description || '',
-      notes: Array.isArray(exam.notes) ? exam.notes : [],
+      notes: notesByExam[String(exam.id)] || [],
     }));
+  };
+
+  const uploadNoteFileToSupabase = async (file) => {
+    const safeName = file.name.replace(/\s+/g, '_');
+    const filePath = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
+    const uploadRes = await fetch(`${supabaseUrl}/storage/v1/object/${supabaseBucket}/${filePath}`, {
+      method: 'POST',
+      headers: {
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+        'x-upsert': 'false',
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+
+    if (!uploadRes.ok) {
+      throw new Error(`Supabase storage upload failed: ${uploadRes.status}`);
+    }
+
+    return `${supabaseUrl}/storage/v1/object/public/${supabaseBucket}/${filePath}`;
   };
 
   // Auth İşlemleri (Rule 3)
@@ -235,46 +279,65 @@ export default function App() {
 
   const handleAddNote = async (e) => {
     e.preventDefault();
-    if (!newNote.title || !newNote.content || !selectedExam || !user) return;
+    if (!newNote.title || !newNote.file || !selectedExam || !user) return;
 
     try {
-      const noteObj = {
-        id: crypto.randomUUID(),
-        title: newNote.title,
-        content: newNote.content,
-        author: user.uid,
-        date: new Date().toISOString()
-      };
-
       if (db) {
+        const noteObj = {
+          id: crypto.randomUUID(),
+          title: newNote.title,
+          content: `Dosya: ${newNote.file.name}`,
+          author: user.uid,
+          date: new Date().toISOString()
+        };
         const examDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exams', selectedExam.id);
         await updateDoc(examDocRef, {
           notes: arrayUnion(noteObj)
         });
+
+        setSelectedExam(prev => ({
+          ...prev,
+          notes: [...(prev.notes || []), noteObj]
+        }));
       } else if (hasSupabaseConfig) {
-        const mergedNotes = [...(selectedExam.notes || []), noteObj];
-        const res = await fetch(`${supabaseUrl}/rest/v1/exams?id=eq.${selectedExam.id}`, {
-          method: 'PATCH',
-          headers: getSupabaseHeaders(),
-          body: JSON.stringify({ notes: mergedNotes }),
+        const fileUrl = await uploadNoteFileToSupabase(newNote.file);
+        const insertRes = await fetch(`${supabaseUrl}/rest/v1/notes`, {
+          method: 'POST',
+          headers: getSupabaseHeaders(true),
+          body: JSON.stringify({
+            exam_id: Number(selectedExam.id),
+            title: newNote.title,
+            file_url: fileUrl,
+            file_name: newNote.file.name,
+          }),
         });
-        if (!res.ok) throw new Error(`Supabase add note failed: ${res.status}`);
+
+        if (!insertRes.ok) throw new Error(`Supabase add note row failed: ${insertRes.status}`);
+
+        const [created] = await insertRes.json();
+        const noteObj = {
+          id: String(created.id),
+          title: created.title,
+          file_url: created.file_url,
+          file_name: created.file_name,
+          date: created.created_at,
+        };
+
+        setSelectedExam(prev => ({
+          ...prev,
+          notes: [...(prev.notes || []), noteObj]
+        }));
+        setExams((prevExams) =>
+          prevExams.map((exam) =>
+            exam.id === selectedExam.id
+              ? { ...exam, notes: [...(exam.notes || []), noteObj] }
+              : exam
+          )
+        );
       } else {
         return;
       }
-
-      setSelectedExam(prev => ({
-        ...prev,
-        notes: [...(prev.notes || []), noteObj]
-      }));
-      setExams((prevExams) =>
-        prevExams.map((exam) =>
-          exam.id === selectedExam.id
-            ? { ...exam, notes: [...(exam.notes || []), noteObj] }
-            : exam
-        )
-      );
-      setNewNote({ title: '', content: '' });
+      setNewNote({ title: '', file: null });
     } catch (err) {
       console.error("Error adding note:", err);
     }
@@ -560,22 +623,23 @@ export default function App() {
                     selectedExam.notes.map(note => (
                       <div key={note.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50">
                         <h5 className="font-bold text-slate-800">{note.title}</h5>
-                        <p className="text-sm text-slate-600 mt-2 line-clamp-3">{note.content}</p>
+                        <p className="text-sm text-slate-600 mt-2 line-clamp-2">
+                          {note.file_name || note.content}
+                        </p>
                         <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400">
                           <span>{new Date(note.date).toLocaleDateString('tr-TR')}</span>
-                          <button 
-                            onClick={() => {
-                              const blob = new Blob([note.content], { type: 'text/plain' });
-                              const url = URL.createObjectURL(blob);
-                              const a = document.createElement('a');
-                              a.href = url;
-                              a.download = `${note.title}.txt`;
-                              a.click();
-                            }}
-                            className="flex items-center gap-1 text-blue-600 font-bold"
-                          >
-                            <Download size={12} /> İndir
-                          </button>
+                          {note.file_url ? (
+                            <a
+                              href={note.file_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-1 text-blue-600 font-bold"
+                            >
+                              <Download size={12} /> İndir
+                            </a>
+                          ) : (
+                            <span className="text-slate-300">Dosya yok</span>
+                          )}
                         </div>
                       </div>
                     ))
@@ -589,7 +653,12 @@ export default function App() {
                 <h4 className="text-lg font-bold flex items-center gap-2"><Upload size={20} className="text-blue-600" /> Not Yükle</h4>
                 <form onSubmit={handleAddNote} className="space-y-4 bg-slate-50 p-5 rounded-2xl border border-slate-100">
                   <input required type="text" value={newNote.title} onChange={e => setNewNote({...newNote, title: e.target.value})} className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none text-sm" placeholder="Not başlığı"/>
-                  <textarea required value={newNote.content} onChange={e => setNewNote({...newNote, content: e.target.value})} className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none h-32 text-sm resize-none" placeholder="Not içeriği veya link..."/>
+                  <input
+                    required
+                    type="file"
+                    onChange={e => setNewNote({ ...newNote, file: e.target.files?.[0] || null })}
+                    className="w-full px-4 py-2 rounded-lg border border-slate-200 outline-none text-sm bg-white"
+                  />
                   <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-all text-sm">Notu Paylaş</button>
                 </form>
               </div>
