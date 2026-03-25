@@ -34,13 +34,20 @@ import {
 } from 'lucide-react';
 
 // Firebase ve Uygulama Yapılandırması (Hata denetimli)
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
+const firebaseConfig = typeof __firebase_config !== 'undefined'
   ? (typeof __firebase_config === 'string' ? JSON.parse(__firebase_config) : __firebase_config)
-  : {};
+  : null;
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+const hasFirebaseConfig = Boolean(firebaseConfig && firebaseConfig.apiKey);
+
+let auth = null;
+let db = null;
+
+if (hasFirebaseConfig) {
+  const app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+}
 
 // Rule 1 & Firestore Fix: appId içindeki '/' karakterleri segment hatasına yol açtığı için temizlenmelidir
 const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'exam-tracker-app';
@@ -61,6 +68,12 @@ export default function App() {
 
   // Auth İşlemleri (Rule 3)
   useEffect(() => {
+    if (!auth) {
+      setUser({ uid: 'local-user' });
+      setLoading(false);
+      return;
+    }
+
     const initAuth = async () => {
       try {
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -79,7 +92,7 @@ export default function App() {
 
   // Veri Çekme (Public Collection - Rule 1 Pathing)
   useEffect(() => {
-    if (!user) return;
+    if (!user || !db) return;
 
     // Koleksiyon yolu: artifacts / {appId} / public / data / exams (5 segment - Tek sayı olmalı)
     const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
@@ -124,7 +137,7 @@ export default function App() {
 
   const handleAddExam = async (e) => {
     e.preventDefault();
-    if (!newExam.title || !newExam.date || role !== 'admin' || !user) return;
+    if (!newExam.title || !newExam.date || role !== 'admin' || !user || !db) return;
 
     try {
       const examsRef = collection(db, 'artifacts', appId, 'public', 'data', 'exams');
@@ -142,7 +155,7 @@ export default function App() {
 
   const handleAddNote = async (e) => {
     e.preventDefault();
-    if (!newNote.title || !newNote.content || !selectedExam || !user) return;
+    if (!newNote.title || !newNote.content || !selectedExam || !user || !db) return;
 
     try {
       const examDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'exams', selectedExam.id);
