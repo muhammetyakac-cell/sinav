@@ -9,6 +9,7 @@ import {
   Upload, 
   Clock,
   X,
+  Trash2,
   BookOpen,
   Lock,
   User,
@@ -275,6 +276,31 @@ export default function App() {
     } catch (err) {
       console.error("Error adding note:", err);
       setStatusMessage(`Not yükleme hatası: ${err.message}`);
+    }
+  };
+
+  const handleDeleteExam = async (examId) => {
+    if (role !== 'admin' || !hasSupabaseConfig || !examId) return;
+    const approved = window.confirm('Bu sınavı silmek istediğinize emin misiniz?');
+    if (!approved) return;
+
+    try {
+      const res = await fetch(`${resolvedSupabaseUrl}/rest/v1/exams?id=eq.${examId}`, {
+        method: 'DELETE',
+        headers: getSupabaseHeaders(),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Supabase delete exam failed (${res.status}): ${errorText}`);
+      }
+
+      setExams((prevExams) => prevExams.filter((exam) => exam.id !== String(examId)));
+      setSelectedExam(null);
+      setStatusMessage('Sınav silindi.');
+    } catch (err) {
+      console.error('Error deleting exam:', err);
+      setStatusMessage(`Sınav silinemedi: ${err.message}`);
     }
   };
 
@@ -560,7 +586,18 @@ export default function App() {
                 <h3 className="text-2xl font-bold text-slate-900">{selectedExam.title}</h3>
                 {selectedExam.description && <p className="text-slate-600 mt-1">{selectedExam.description}</p>}
               </div>
-              <button onClick={() => setSelectedExam(null)} className="text-slate-400 hover:text-slate-600 bg-white p-2 rounded-full"><X /></button>
+              <div className="flex items-center gap-2">
+                {role === 'admin' && (
+                  <button
+                    onClick={() => handleDeleteExam(selectedExam.id)}
+                    className="text-red-600 hover:text-red-700 bg-white p-2 rounded-full border border-red-100"
+                    title="Sınavı Sil"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
+                <button onClick={() => setSelectedExam(null)} className="text-slate-400 hover:text-slate-600 bg-white p-2 rounded-full"><X /></button>
+              </div>
             </div>
             
             <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-8">

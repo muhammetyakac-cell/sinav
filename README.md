@@ -30,6 +30,7 @@ alter table notes enable row level security;
 
 create policy "anon select exams" on exams for select to anon using (true);
 create policy "anon insert exams" on exams for insert to anon with check (true);
+create policy "anon delete exams" on exams for delete to anon using (true);
 
 create policy "anon select notes" on notes for select to anon using (true);
 create policy "anon insert notes" on notes for insert to anon with check (true);
