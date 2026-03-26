@@ -42,7 +42,7 @@ const resolvedSupabaseUrl = supabaseUrl || storedSupabaseUrl || '';
 const hasSupabaseConfig = Boolean(resolvedSupabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
 const bannerImageUrl = 'https://gcdnb.pbrd.co/images/0cybfUNV5ItI.jpg';
-const archeoTitles = ["Anonim Kazı Başkanı", "Gizli Epigraf", "Gezgin Restoratör", "Gece Kazıcısı", "Müze Kaçkını"];
+const archeoTitles = ["Lidya Parası", "Truva Atı", "Kayıp Sütun", "Antik Çizim", "Toprak Kap", "Obsidyen Bıçak", "Sagalassos Yolcusu", "Knidos Aslanı"];
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -76,10 +76,7 @@ export default function App() {
   const [newMessage, setNewMessage] = useState('');
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(true);
-  const [userNickname] = useState(
-    () => `${archeoTitles[Math.floor(Math.random() * archeoTitles.length)]} #${Math.floor(Math.random() * 1000)}`
-  );
-  const [userColor] = useState(() => `hsl(${Math.random() * 360}, 70%, 60%)`);
+  const [currentUser, setCurrentUser] = useState({ nick: 'Anonim Kazı Başkanı #000', ip: '0.0.0.0', color: '#3b82f6' });
 
   const getSupabaseHeaders = (preferRepresentation = false) => ({
     apikey: supabaseAnonKey,
@@ -174,6 +171,38 @@ export default function App() {
   useEffect(() => {
     const interval = setInterval(() => setNowTick(new Date()), 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const generateStaticIdentity = (ip) => {
+      let hash = 0;
+      for (let i = 0; i < ip.length; i++) {
+        hash = ip.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const absoluteHash = Math.abs(hash);
+      const index = absoluteHash % archeoTitles.length;
+      const id = absoluteHash % 1000;
+      return {
+        nick: `${archeoTitles[index]} #${id}`,
+        color: `hsl(${absoluteHash % 360}, 70%, 45%)`,
+      };
+    };
+
+    const initIdentity = async () => {
+      try {
+        const response = await fetch('https://api.ipify.org?format=json');
+        const data = await response.json();
+        const ip = data?.ip || '127.0.0.1';
+        const identity = generateStaticIdentity(ip);
+        setCurrentUser({ ip, ...identity });
+      } catch {
+        const ip = '127.0.0.1';
+        const identity = generateStaticIdentity(ip);
+        setCurrentUser({ ip, ...identity });
+      }
+    };
+
+    initIdentity();
   }, []);
 
   useEffect(() => {
@@ -278,8 +307,8 @@ export default function App() {
         headers: getSupabaseHeaders(true),
         body: JSON.stringify({
           content,
-          nickname: userNickname,
-          color: userColor,
+          color: currentUser.color,
+          nickname: currentUser.nick,
         }),
       });
       if (!res.ok) throw new Error('Mesaj gönderilemedi');
@@ -942,6 +971,9 @@ export default function App() {
                   <Plus size={16} />
                 </button>
               </form>
+              <div className="px-3 pb-2 text-[10px] text-slate-400 truncate">
+                Kimlik: <span style={{ color: currentUser.color }}>{currentUser.nick}</span>
+              </div>
             </>
           )}
         </div>
