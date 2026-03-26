@@ -43,6 +43,13 @@ const hasSupabaseConfig = Boolean(resolvedSupabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
 const bannerImageUrl = 'https://gcdnb.pbrd.co/images/0cybfUNV5ItI.jpg';
 const archeoTitles = ["Lidya Parası", "Truva Atı", "Kayıp Sütun", "Antik Çizim", "Toprak Kap", "Obsidyen Bıçak", "Sagalassos Yolcusu", "Knidos Aslanı"];
+const trToEn = (str) => {
+  const mapping = {
+    'Ğ': 'G', 'ğ': 'g', 'Ü': 'U', 'ü': 'u', 'Ş': 'S', 'ş': 's',
+    'İ': 'I', 'ı': 'i', 'Ö': 'O', 'ö': 'o', 'Ç': 'C', 'ç': 'c'
+  };
+  return str.replace(/[ĞğÜüŞşİıÖöÇç]/g, (letter) => mapping[letter]);
+};
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -129,7 +136,10 @@ export default function App() {
   };
 
   const uploadNoteFileToSupabase = async (file, onProgress) => {
-    const safeName = file.name.replace(/\s+/g, '_');
+    let safeName = trToEn(file.name);
+    safeName = safeName
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9.\-_]/g, '');
     const filePath = `${Date.now()}-${crypto.randomUUID()}-${safeName}`;
     await new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
