@@ -342,6 +342,40 @@ export default function App() {
     }
   };
 
+  const handleDeleteNote = async (noteId) => {
+    if (role !== 'admin' || !hasSupabaseConfig || !noteId || !selectedExam) return;
+    const approved = window.confirm('Bu notu silmek istediğinize emin misiniz?');
+    if (!approved) return;
+
+    try {
+      const res = await fetch(`${resolvedSupabaseUrl}/rest/v1/notes?id=eq.${noteId}`, {
+        method: 'DELETE',
+        headers: getSupabaseHeaders(),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Supabase delete note failed (${res.status}): ${errorText}`);
+      }
+
+      setSelectedExam((prev) => prev ? ({
+        ...prev,
+        notes: (prev.notes || []).filter((note) => note.id !== String(noteId))
+      }) : prev);
+      setExams((prevExams) =>
+        prevExams.map((exam) =>
+          exam.id === selectedExam.id
+            ? { ...exam, notes: (exam.notes || []).filter((note) => note.id !== String(noteId)) }
+            : exam
+        )
+      );
+      setStatusMessage('Not silindi.');
+    } catch (err) {
+      console.error('Error deleting note:', err);
+      setStatusMessage(`Not silinemedi: ${err.message}`);
+    }
+  };
+
   const handleAdminLogin = (e) => {
     e.preventDefault();
     if (adminPassword === 'admin4321') {
@@ -657,7 +691,7 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="space-y-4">
                 <h4 className="text-lg font-bold flex items-center gap-2"><FileText size={20} className="text-blue-600" /> Paylaşılan Notlar</h4>
-                <div className="space-y-3">
+                <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                   {selectedExam.notes && selectedExam.notes.length > 0 ? (
                     selectedExam.notes.map(note => (
                       <div key={note.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50">
@@ -667,18 +701,29 @@ export default function App() {
                         </p>
                         <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400">
                           <span>{new Date(note.date).toLocaleDateString('tr-TR')}</span>
-                          {note.file_url ? (
-                            <a
-                              href={note.file_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex items-center gap-1 text-blue-600 font-bold"
-                            >
-                              <Download size={12} /> İndir
-                            </a>
-                          ) : (
-                            <span className="text-slate-300">Dosya yok</span>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {note.file_url ? (
+                              <a
+                                href={note.file_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-1 text-blue-600 font-bold"
+                              >
+                                <Download size={12} /> İndir
+                              </a>
+                            ) : (
+                              <span className="text-slate-300">Dosya yok</span>
+                            )}
+                            {role === 'admin' && (
+                              <button
+                                onClick={() => handleDeleteNote(note.id)}
+                                className="text-red-600 font-bold"
+                                title="Notu sil"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))
