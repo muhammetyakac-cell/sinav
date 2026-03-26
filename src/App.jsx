@@ -56,6 +56,9 @@ export default function App() {
   const [statusMessage, setStatusMessage] = useState('');
   const [isUploadingNote, setIsUploadingNote] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isSavingExam, setIsSavingExam] = useState(false);
+  const [examQuery, setExamQuery] = useState('');
+  const [examFilter, setExamFilter] = useState('upcoming');
   const [configUrl, setConfigUrl] = useState(resolvedSupabaseUrl);
   const [configKey, setConfigKey] = useState(supabaseAnonKey);
 
@@ -199,6 +202,20 @@ export default function App() {
     return days < 0 ? 0 : days;
   }, [nextExam]);
 
+  const filteredExams = useMemo(() => {
+    const todayStart = new Date().setHours(0, 0, 0, 0);
+    return exams.filter((exam) => {
+      const matchesQuery = exam.title.toLowerCase().includes(examQuery.toLowerCase());
+      const examTime = new Date(exam.date).getTime();
+      const matchesFilter = examFilter === 'all'
+        ? true
+        : examFilter === 'past'
+          ? examTime < todayStart
+          : examTime >= todayStart;
+      return matchesQuery && matchesFilter;
+    });
+  }, [exams, examQuery, examFilter]);
+
   // Takvim Yardımcıları
   const daysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = (year, month) => {
@@ -211,6 +228,7 @@ export default function App() {
     if (!newExam.title || !newExam.date || role !== 'admin' || !user) return;
 
     try {
+      setIsSavingExam(true);
       if (hasSupabaseConfig) {
         const res = await fetch(`${resolvedSupabaseUrl}/rest/v1/exams`, {
           method: 'POST',
@@ -237,6 +255,8 @@ export default function App() {
     } catch (err) {
       console.error("Error adding exam:", err);
       setStatusMessage(`Sınav yayınlanamadı: ${err.message}`);
+    } finally {
+      setIsSavingExam(false);
     }
   };
 
@@ -512,6 +532,7 @@ export default function App() {
               <div className="flex bg-slate-100 rounded-lg p-1">
                 <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-1 hover:bg-white rounded transition-all"><ChevronLeft size={20}/></button>
                 <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-1 hover:bg-white rounded transition-all"><ChevronRight size={20}/></button>
+                <button onClick={() => setCurrentDate(new Date())} className="px-2 text-xs font-semibold hover:bg-white rounded transition-all">Bu Ay</button>
               </div>
             </div>
             
@@ -543,11 +564,24 @@ export default function App() {
               <CalendarIcon size={20} className="text-blue-600" />
               Yaklaşan Sınavlar
             </h3>
+            <div className="mb-4 space-y-3">
+              <input
+                type="text"
+                value={examQuery}
+                onChange={(e) => setExamQuery(e.target.value)}
+                placeholder="Sınav ara..."
+                className="w-full px-3 py-2 rounded-lg border border-slate-200 outline-none text-sm"
+              />
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <button onClick={() => setExamFilter('upcoming')} className={`px-2 py-2 rounded-lg font-semibold ${examFilter === 'upcoming' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Yaklaşan</button>
+                <button onClick={() => setExamFilter('all')} className={`px-2 py-2 rounded-lg font-semibold ${examFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Tümü</button>
+                <button onClick={() => setExamFilter('past')} className={`px-2 py-2 rounded-lg font-semibold ${examFilter === 'past' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'}`}>Geçmiş</button>
+              </div>
+            </div>
             <div className="space-y-3">
-              {exams
-                .filter(e => new Date(e.date) >= new Date().setHours(0,0,0,0))
+              {filteredExams
                 .sort((a,b) => new Date(a.date) - new Date(b.date))
-                .slice(0, 5)
+                .slice(0, 8)
                 .map(exam => (
                   <div 
                     key={exam.id} 
@@ -563,7 +597,7 @@ export default function App() {
                     <p className="text-xs text-slate-500">{new Date(exam.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })}</p>
                   </div>
                 ))}
-              {exams.length === 0 && <p className="text-sm text-slate-400 text-center py-4">Sınav bulunamadı.</p>}
+              {filteredExams.length === 0 && <p className="text-sm text-slate-400 text-center py-4">Aramana uygun sınav bulunamadı.</p>}
             </div>
           </div>
         </section>
@@ -589,7 +623,9 @@ export default function App() {
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Detaylar</label>
                 <textarea value={newExam.description} onChange={e => setNewExam({...newExam, description: e.target.value})} className="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none h-24 resize-none" placeholder="Sınav kapsamı..."/>
               </div>
-              <button type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-all">Sınavı Yayınla</button>
+              <button disabled={isSavingExam} type="submit" className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold hover:bg-indigo-700 transition-all disabled:opacity-60">
+                {isSavingExam ? 'Yayınlanıyor...' : 'Sınavı Yayınla'}
+              </button>
             </form>
           </div>
         </div>
@@ -673,7 +709,9 @@ export default function App() {
                       <p className="text-xs text-slate-500 text-right">%{uploadProgress}</p>
                     </div>
                   )}
-                  <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-all text-sm">Notu Paylaş</button>
+                  <button disabled={isUploadingNote} type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition-all text-sm disabled:opacity-60">
+                    {isUploadingNote ? 'Yükleniyor...' : 'Notu Paylaş'}
+                  </button>
                 </form>
               </div>
             </div>
