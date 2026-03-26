@@ -534,7 +534,7 @@ export default function App() {
         className="text-white py-12 px-4 shadow-lg mb-8 bg-slate-700 bg-center bg-cover bg-no-repeat"
         style={{ backgroundImage: `url('${bannerImageUrl}')` }}
       >
-        <div className="max-w-5xl mx-auto text-center">
+        <div className="max-w-5xl mx-auto text-left">
           <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 inline-block border border-white/20">
             {nextExam ? (
               <div className="flex flex-col items-center">
