@@ -40,6 +40,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const resolvedSupabaseUrl = supabaseUrl || storedSupabaseUrl || '';
 const hasSupabaseConfig = Boolean(resolvedSupabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
+const bannerImageUrl = `${import.meta.env.BASE_URL}IMG_6924.jpg`;
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -531,7 +532,7 @@ export default function App() {
 
       <header
         className="text-white py-12 px-4 shadow-lg mb-8 bg-slate-700 bg-center bg-cover bg-no-repeat"
-        style={{ backgroundImage: "url('/IMG_6924.jpg')" }}
+        style={{ backgroundImage: `url('${bannerImageUrl}')` }}
       >
         <div className="max-w-5xl mx-auto text-center">
           <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 inline-block border border-white/20">
@@ -699,6 +700,13 @@ export default function App() {
                     selectedExam.notes.map(note => (
                       <div key={note.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50">
                         <h5 className="font-bold text-slate-800">{note.title}</h5>
+                        {note.file_url && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(note.file_name || '') && (
+                          <img
+                            src={note.file_url}
+                            alt={note.title}
+                            className="mt-2 w-full h-28 object-cover rounded-lg border border-slate-200"
+                          />
+                        )}
                         <p className="text-sm text-slate-600 mt-2 line-clamp-2">
                           {note.file_name || note.content}
                         </p>
