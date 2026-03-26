@@ -8,6 +8,7 @@ import {
   Download, 
   Upload, 
   Clock,
+  ThumbsUp,
   X,
   Trash2,
   BookOpen,
@@ -62,6 +63,14 @@ export default function App() {
   const [examFilter, setExamFilter] = useState('upcoming');
   const [configUrl, setConfigUrl] = useState(resolvedSupabaseUrl);
   const [configKey, setConfigKey] = useState(supabaseAnonKey);
+  const [nowTick, setNowTick] = useState(new Date());
+  const [noteVotes, setNoteVotes] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('note_votes') || '{}');
+    } catch {
+      return {};
+    }
+  });
 
   const getSupabaseHeaders = (preferRepresentation = false) => ({
     apikey: supabaseAnonKey,
@@ -153,6 +162,11 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Veri Çekme
   useEffect(() => {
     if (!user) return;
@@ -198,10 +212,25 @@ export default function App() {
 
   const daysToNextExam = useMemo(() => {
     if (!nextExam) return null;
-    const diff = new Date(nextExam.date) - new Date();
-    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-    return days < 0 ? 0 : days;
-  }, [nextExam]);
+    const target = new Date(nextExam.date);
+    target.setHours(23, 59, 59, 999);
+    const diff = target - nowTick;
+    if (diff <= 0) return { days: 0, hours: 0, minutes: 0 };
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+    const minutes = Math.floor((diff / (1000 * 60)) % 60);
+    return { days, hours, minutes };
+  }, [nextExam, nowTick]);
+
+  const getNoteScore = (noteId) => noteVotes[noteId] || 0;
+
+  const handleVoteNote = (noteId) => {
+    setNoteVotes((prev) => {
+      const next = { ...prev, [noteId]: (prev[noteId] || 0) + 1 };
+      localStorage.setItem('note_votes', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const filteredExams = useMemo(() => {
     const todayStart = new Date().setHours(0, 0, 0, 0);
@@ -511,7 +540,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans pb-20">
-      <nav className="bg-white border-b border-slate-100 px-6 py-4 flex justify-between items-center sticky top-0 z-40">
+      <nav className="sticky top-4 mx-auto max-w-5xl z-40 bg-white/80 backdrop-blur-xl border border-white/20 shadow-sm rounded-2xl px-6 py-3 flex justify-between items-center transition-all mb-4">
         <div className="flex items-center gap-2 font-bold text-blue-600">
           <BookOpen size={24} />
           <span className="hidden md:inline">Sınav Takip</span>
@@ -535,14 +564,17 @@ export default function App() {
         style={{ backgroundImage: `url('${bannerImageUrl}')` }}
       >
         <div className="max-w-5xl ml-0 mr-auto text-left">
-          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-3 md:p-6 inline-block w-1/2 md:w-auto border border-white/20">
+          <div className="bg-white/20 backdrop-blur-md rounded-2xl p-3 md:p-6 inline-block w-1/2 md:w-auto border border-white/20">
             {nextExam ? (
               <div className="flex flex-col items-center">
                 <span className="text-blue-100 text-sm uppercase tracking-widest font-semibold mb-1">En Yakın Sınav: {nextExam.title}</span>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-5xl font-black text-white">{daysToNextExam}</span>
-                  <span className="text-2xl font-light text-blue-100">gün kaldı</span>
+                  <span className="text-4xl md:text-5xl font-black text-white">{daysToNextExam?.days}</span>
+                  <span className="text-lg md:text-2xl font-light text-blue-100">gün</span>
                 </div>
+                <span className="text-xs md:text-sm text-blue-100 mt-1">
+                  {daysToNextExam?.hours}s {daysToNextExam?.minutes}dk kaldı
+                </span>
                 <div className="mt-3 flex items-center gap-2 text-blue-200 text-sm">
                   <Clock size={16} />
                   <span>{new Date(nextExam.date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
@@ -697,7 +729,9 @@ export default function App() {
                 <h4 className="text-lg font-bold flex items-center gap-2"><FileText size={20} className="text-blue-600" /> Paylaşılan Notlar</h4>
                 <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
                   {selectedExam.notes && selectedExam.notes.length > 0 ? (
-                    selectedExam.notes.map(note => (
+                    [...selectedExam.notes]
+                      .sort((a, b) => getNoteScore(b.id) - getNoteScore(a.id))
+                      .map(note => (
                       <div key={note.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50">
                         <h5 className="font-bold text-slate-800">{note.title}</h5>
                         {note.file_url && /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(note.file_name || '') && (
@@ -713,6 +747,13 @@ export default function App() {
                         <div className="mt-3 flex items-center justify-between text-[10px] text-slate-400">
                           <span>{new Date(note.date).toLocaleDateString('tr-TR')}</span>
                           <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleVoteNote(note.id)}
+                              className="flex items-center gap-1 text-emerald-600 font-bold"
+                              title="Notu beğen"
+                            >
+                              <ThumbsUp size={12} /> {getNoteScore(note.id)}
+                            </button>
                             {note.file_url ? (
                               <a
                                 href={note.file_url}
