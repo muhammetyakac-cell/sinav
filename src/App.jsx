@@ -40,7 +40,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const resolvedSupabaseUrl = supabaseUrl || storedSupabaseUrl || '';
 const hasSupabaseConfig = Boolean(resolvedSupabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
-const bannerImageUrl = 'https://pasteboard.co/0cybfUNV5ItI.jpg';
+const bannerImageUrl = 'https://gcdnb.pbrd.co/images/0cybfUNV5ItI.jpg';
 
 export default function App() {
   const [user, setUser] = useState(null);
