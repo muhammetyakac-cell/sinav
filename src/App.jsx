@@ -352,12 +352,22 @@ export default function App() {
       setStatusMessage('Lütfen tüm soruları cevaplayın.');
       return;
     }
-    const correct = quizQuestions.reduce(
-      (acc, q) => acc + (quizAnswers[q.id] === q.answer ? 1 : 0),
-      0
-    );
+    const wrongQuestions = [];
+    const correct = quizQuestions.reduce((acc, q) => {
+      const isCorrect = quizAnswers[q.id] === q.answer;
+      if (!isCorrect) {
+        wrongQuestions.push({
+          id: q.id,
+          question: q.question,
+          correctIndex: q.answer,
+          userIndex: quizAnswers[q.id],
+          options: q.options,
+        });
+      }
+      return acc + (isCorrect ? 1 : 0);
+    }, 0);
     const percent = Math.round((correct / quizQuestions.length) * 100);
-    setQuizScore({ correct, total: quizQuestions.length, percent });
+    setQuizScore({ correct, total: quizQuestions.length, percent, wrongQuestions });
   };
 
   const filteredExams = useMemo(() => {
@@ -1080,6 +1090,22 @@ export default function App() {
                     <p className="font-bold text-emerald-800">
                       Sonuç: {quizScore.correct}/{quizScore.total} doğru — %{quizScore.percent}
                     </p>
+                    {quizScore.wrongQuestions?.length > 0 && (
+                      <div className="mt-4 space-y-3">
+                        <p className="text-sm font-semibold text-red-700">Yanlış cevaplanan sorular:</p>
+                        {quizScore.wrongQuestions.map((w, idx) => (
+                          <div key={w.id} className="p-3 rounded-xl bg-white border border-red-100">
+                            <p className="text-sm font-semibold text-slate-800">{idx + 1}. {w.question}</p>
+                            <p className="text-xs text-red-600 mt-1">
+                              Senin cevabın: {w.userIndex !== undefined ? `${String.fromCharCode(65 + w.userIndex)}) ${w.options[w.userIndex]}` : 'Boş'}
+                            </p>
+                            <p className="text-xs text-emerald-700">
+                              Doğru cevap: {String.fromCharCode(65 + w.correctIndex)}) {w.options[w.correctIndex]}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
