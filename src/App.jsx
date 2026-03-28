@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar as CalendarIcon, 
   ChevronLeft, 
@@ -43,6 +43,58 @@ const hasSupabaseConfig = Boolean(resolvedSupabaseUrl && supabaseAnonKey);
 const supabaseBucket = 'notes';
 const bannerImageUrl = 'https://gcdnb.pbrd.co/images/0cybfUNV5ItI.jpg';
 const archeoTitles = ["Lidya Parası", "Truva Atı", "Kayıp Sütun", "Antik Çizim", "Toprak Kap", "Obsidyen Bıçak", "Sagalassos Yolcusu", "Knidos Aslanı"];
+const WEEKLY_QUESTIONS = [
+  { id: 1, q: 'Neolitik Devrim kavramını ilk ortaya atan bilim insanı?', options: ['Lewis Binford', 'V. Gordon Childe', 'Ian Hodder', 'Robert Braidwood'], a: 1 },
+  { id: 2, q: 'Obsidiyen ticaret merkezi sayılan Neolitik yerleşim?', options: ['Çayönü', 'Aşıklı Höyük', 'Hacılar', 'Hallan Çemi'], a: 1 },
+  { id: 3, q: 'Göbeklitepe T biçimli dikilitaş üslubu?', options: ['Epipaleolitik / Çanak Çömleksiz Neolitik A', 'Geç Neolitik', 'Kalkolitik', 'Erken Tunç Çağı'], a: 0 },
+  { id: 4, q: 'Mezopotamya’da yazının ilk kez kullanıldığı dönem?', options: ['Ubeyd', 'Uruk', 'Cemdet Nasr', 'Akad'], a: 1 },
+  { id: 5, q: 'Kültepe tabletleri neden dönüm noktasıdır?', options: ['İlk tapınak planları', 'Anadolu’nun yazılı tarihe geçişi', 'Hitit başkentini belirtmesi', 'Demir kullanımını tarif etmesi'], a: 1 },
+  { id: 6, q: 'Hitit soylular meclisi?', options: ['Tavananna', 'Pankuş', 'Labarna', 'Ziti'], a: 1 },
+  { id: 7, q: 'Tuşpa günümüzde hangi şehir?', options: ['Erzurum', 'Van', 'Kars', 'Erzincan'], a: 1 },
+  { id: 8, q: 'Frig ahşap işçiliği geçme tekniği?', options: ['Fibula', 'Tümülüs', 'Mevduat', 'Kakmacılık / Kündekari'], a: 3 },
+  { id: 9, q: 'Sardes ilk sikkelerin temel amacı?', options: ['Halkın zenginleşmesi', 'Paralı asker ödemelerini standartlaştırmak', 'Dış ticareti durdurmak', 'Tapınak vergisi toplamak'], a: 1 },
+  { id: 10, q: 'Geç Hitit giriş koruyucu aslan/sfenks heykelleri?', options: ['Megaron', 'Ortostat', 'Stela', 'Karum'], a: 1 },
+  { id: 11, q: 'Yunan tapınakta sütun başlığı üstündeki yatay öğe?', options: ['Arşitrav (Epistil)', 'Friz', 'Geison', 'Timpanon'], a: 0 },
+  { id: 12, q: 'Dor düzeninde metoplar arasındaki bölüm?', options: ['Volüt', 'Triglif', 'Abakus', 'Echinus'], a: 1 },
+  { id: 13, q: 'Kontrapostun erken ünlü örneği?', options: ['Kouros', 'Kritios Oğlu', 'Doryphoros', 'Laocoön'], a: 1 },
+  { id: 14, q: 'Helenistik dönem başlangıcı?', options: ['Peloponnesos sonu', 'Büyük İskender’in ölümü', 'Augustus imparatorluğu', 'Pers işgali'], a: 1 },
+  { id: 15, q: 'Roma antik beton adı?', options: ['Opus Reticulatum', 'Opus Caementicium', 'Opus Sectile', 'Opus Tessellatum'], a: 1 },
+  { id: 16, q: 'Roma tiyatrosunda seyirci bölümü?', options: ['Orchestra', 'Skene', 'Cavea', 'Vomitorium'], a: 2 },
+  { id: 17, q: 'Karyatidli tapınak?', options: ['Parthenon', 'Erechtheion', 'Nike Tapınağı', 'Propylaia'], a: 1 },
+  { id: 18, q: 'Roma şehir planında kuzey-güney ana cadde?', options: ['Decumanus Maximus', 'Cardo Maximus', 'Forum', 'Insula'], a: 1 },
+  { id: 19, q: 'Siyah figürden kırmızı figüre geçiş?', options: ['MÖ 7. yy sonu', 'MÖ 530 civarı', 'MÖ 4. yy', 'MS 1. yy'], a: 1 },
+  { id: 20, q: 'Pompeii illüzyonist üslup kaçıncı stil?', options: ['1. Stil', '2. Stil', '3. Stil', '4. Stil'], a: 1 },
+  { id: 21, q: 'Tabakalaşma yasasına göre en alt tabaka?', options: ['En modern', 'En eski', 'Tarihlendirilemez', 'Kesin Roma'], a: 1 },
+  { id: 22, q: 'Dendrokronoloji hangi materyal?', options: ['Kemik', 'Seramik', 'Ağaç halkaları', 'Taş'], a: 2 },
+  { id: 23, q: 'C14 sağlıklı üst limit?', options: ['5.000 yıl', '50.000-60.000 yıl', '1 milyon yıl', '10 milyon yıl'], a: 1 },
+  { id: 24, q: 'Süreçsel arkeoloji öncüsü?', options: ['Ian Hodder', 'Lewis Binford', 'Schliemann', 'Arthur Evans'], a: 1 },
+  { id: 25, q: 'Yüzeyde seramik yoğunluğu ile sınır belirleme?', options: ['Sondaj', 'Survey', 'Stratigrafi', 'Tipoloji'], a: 1 },
+  { id: 26, q: 'Planlı yonga çıkarma tekniği?', options: ['Levallois', 'El baltası', 'Mikrolit', 'Baskı'], a: 0 },
+  { id: 27, q: 'In-situ ne demek?', options: ['Lab ortamı', 'Orijinal konum', 'Sahte', 'Dağınık yüzey malzemesi'], a: 1 },
+  { id: 28, q: 'Su altı arkeolojisinin babası?', options: ['Robert Ballard', 'George Bass', 'Jacques Cousteau', 'Cemal Pulak'], a: 1 },
+  { id: 29, q: 'Seramik form/bezeme gruplandırması?', options: ['Epigrafi', 'Tipoloji', 'Numismatik', 'Antropoloji'], a: 1 },
+  { id: 30, q: 'Post-süreçselin önemli savunucusu?', options: ['James Mellaart', 'Ian Hodder', 'Colin Renfrew', 'Michael Schiffer'], a: 1 },
+  { id: 31, q: 'Hermes’in Roma karşılığı?', options: ['Mars', 'Merkür', 'Neptün', 'Jüpiter'], a: 1 },
+  { id: 32, q: 'Sikke üzerindeki yazılar?', options: ['Epigraf', 'Lejand', 'Kabartma', 'Mühür'], a: 1 },
+  { id: 33, q: 'Sikkenin ön yüzü?', options: ['Revers', 'Avers', 'Exergue', 'Kondisyon'], a: 1 },
+  { id: 34, q: 'Epigrafi neyi inceler?', options: ['Sikkeler', 'Taş/sert yüzey yazıtları', 'Papirüs', 'El yazmaları'], a: 1 },
+  { id: 35, q: 'Truva kazılarını başlatan tartışmalı isim?', options: ['Dörpfeld', 'Heinrich Schliemann', 'Korfmann', 'Blegen'], a: 1 },
+  { id: 36, q: 'Anadolu’da en eski yerleşik köy?', options: ['Çatalhöyük', 'Hallan Çemi', 'Çayönü', 'Göbeklitepe'], a: 1 },
+  { id: 37, q: 'Bouleuterion ne için?', options: ['Ticaret merkezi', 'Meclis binası', 'Hamam', 'Kütüphane'], a: 1 },
+  { id: 38, q: 'Myken bindirme kubbeli mezar?', options: ['Tümülüs', 'Tholos', 'Lahit', 'Kurgan'], a: 1 },
+  { id: 39, q: 'Efes’te 7 harikadan biri?', options: ['Celsus Kütüphanesi', 'Hadrian Tapınağı', 'Artemis Tapınağı', 'Büyük Tiyatro'], a: 2 },
+  { id: 40, q: 'Antik tiyatroda koronun alanı?', options: ['Parodos', 'Orchestra', 'Diazoma', 'Analemma'], a: 1 },
+  { id: 41, q: 'Seramikte kırmızı/siyah renk süreci neyle ilgili?', options: ['Kireç miktarı', 'Demir oksit oranı', '1500°C üstü', 'Yoğrulma biçimi'], a: 1 },
+  { id: 42, q: 'Arkaik dönem erkek heykelleri?', options: ['Atlant', 'Kouros', 'Herm', 'Stele'], a: 1 },
+  { id: 43, q: 'Res Gestae tam kopyası Türkiye’de nerede?', options: ['Ankara', 'Antalya', 'İzmir', 'Aydın'], a: 0 },
+  { id: 44, q: 'Sütun gövdesindeki dikey yivler?', options: ['Abakus', 'Kanelür', 'Sütun tamburu', 'Stylobat'], a: 1 },
+  { id: 45, q: 'Peripteros planlı tapınak?', options: ['Önde iki sütun', 'Ön-arka sütun', 'Dört yanı tek sıra sütun', 'Dört yanı çift sıra sütun'], a: 2 },
+  { id: 46, q: 'Helenistik barok üslup en iyi hangi ekol?', options: ['Rodos', 'Bergama', 'İskenderiye', 'Atina'], a: 1 },
+  { id: 47, q: 'Kültepe kazıları hangi bilim insanı?', options: ['Ekrem Akurgal', 'Tahsin Özgüç', 'Halet Çambel', 'Muhibbe Darga'], a: 1 },
+  { id: 48, q: 'Bizans kubbeyi kareye oturtan öğe?', options: ['Tonoz', 'Pandantif', 'Apsis', 'Narteks'], a: 1 },
+  { id: 49, q: 'Paleolitik mağara resimlerinde yaygın teori?', options: ['Dekorasyon', 'Av büyüsü/ritüel', 'Ticari kayıt', 'Sınır'], a: 1 },
+  { id: 50, q: 'UNESCO güncel eklenenlerden arkeolojik alan?', options: ['Gordion', 'Ani', 'Afrodisias', 'Bergama'], a: 0 },
+];
 const trToEn = (str) => {
   const mapping = {
     'Ğ': 'G', 'ğ': 'g', 'Ü': 'U', 'ü': 'u', 'Ş': 'S', 'ş': 's',
@@ -57,7 +109,7 @@ export default function App() {
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [isGameOpen, setIsGameOpen] = useState(false);
+  const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedExam, setSelectedExam] = useState(null);
   const [newExam, setNewExam] = useState({ title: '', date: '', description: '' });
@@ -85,9 +137,10 @@ export default function App() {
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [currentUser, setCurrentUser] = useState({ nick: 'Anonim Kazı Başkanı #000', ip: '0.0.0.0', color: '#3b82f6' });
-  const gameCanvasRef = useRef(null);
-  const gameStateRef = useRef(null);
-  const gameTouchRef = useRef({ x: 0, y: 0 });
+  const [quizSet, setQuizSet] = useState([]);
+  const [quizAnswers, setQuizAnswers] = useState({});
+  const [quizSubmitted, setQuizSubmitted] = useState(false);
+  const [quizScore, setQuizScore] = useState(0);
 
   const getSupabaseHeaders = (preferRepresentation = false) => ({
     apikey: supabaseAnonKey,
@@ -244,245 +297,6 @@ export default function App() {
     };
   }, [user]);
 
-  useEffect(() => {
-    if (!isGameOpen || !gameCanvasRef.current) return;
-
-    const canvas = gameCanvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    const width = 360;
-    const height = 640;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
-    ctx.scale(dpr, dpr);
-
-    const lanes = [width * 0.22, width * 0.5, width * 0.78];
-    const pooled = Array.from({ length: 15 }, (_, i) => ({
-      z: 80 + i * 30,
-      lane: i % 3,
-      type: ['empty', 'left', 'right', 'jump', 'slide'][Math.floor(Math.random() * 5)],
-      active: true
-    }));
-
-    gameStateRef.current = {
-      lane: 1,
-      targetLane: 1,
-      y: height - 140,
-      vY: 0,
-      isSliding: false,
-      slideTimer: 0,
-      gravity: 1800 * 3,
-      jumpForce: 900,
-      coyoteTimer: 0,
-      speed: 12,
-      maxSpeed: 30,
-      speedTimer: 0,
-      distance: 0,
-      gold: 0,
-      dead: false,
-      pool: pooled,
-      cameraFov: 60,
-      lastTs: performance.now()
-    };
-
-    const inputLane = (delta) => {
-      const s = gameStateRef.current;
-      s.targetLane = Math.max(0, Math.min(2, s.targetLane + delta));
-    };
-    const jump = () => {
-      const s = gameStateRef.current;
-      if (s.dead) return;
-      if (s.y >= height - 140 || s.coyoteTimer > 0) {
-        s.vY = -s.jumpForce;
-        s.coyoteTimer = 0;
-      }
-    };
-    const slide = () => {
-      const s = gameStateRef.current;
-      if (s.dead) return;
-      s.isSliding = true;
-      s.slideTimer = 0.8;
-    };
-
-    const keyHandler = (e) => {
-      if (e.key === 'ArrowLeft' || e.key.toLowerCase() === 'a') inputLane(-1);
-      if (e.key === 'ArrowRight' || e.key.toLowerCase() === 'd') inputLane(1);
-      if (e.key === 'ArrowUp' || e.key === ' ') jump();
-      if (e.key === 'ArrowDown' || e.key.toLowerCase() === 's') slide();
-    };
-    window.addEventListener('keydown', keyHandler);
-
-    const onTouchStart = (e) => {
-      const t = e.touches[0];
-      gameTouchRef.current = { x: t.clientX, y: t.clientY };
-    };
-    const onTouchEnd = (e) => {
-      const t = e.changedTouches[0];
-      const dx = t.clientX - gameTouchRef.current.x;
-      const dy = t.clientY - gameTouchRef.current.y;
-      if (Math.abs(dx) > Math.abs(dy)) inputLane(dx > 20 ? 1 : dx < -20 ? -1 : 0);
-      else if (dy < -20) jump();
-      else if (dy > 20) slide();
-    };
-    canvas.addEventListener('touchstart', onTouchStart, { passive: true });
-    canvas.addEventListener('touchend', onTouchEnd, { passive: true });
-
-    let rafId;
-    const loop = (ts) => {
-      const s = gameStateRef.current;
-      const dt = Math.min((ts - s.lastTs) / 1000, 0.033);
-      s.lastTs = ts;
-
-      if (!s.dead) {
-        s.speedTimer += dt;
-        if (s.speedTimer >= 10) {
-          s.speed = Math.min(s.maxSpeed, s.speed * 1.02);
-          s.speedTimer = 0;
-        }
-        s.cameraFov = 60 + ((s.speed - 12) / (30 - 12)) * 15;
-        s.distance += s.speed * dt;
-      }
-
-      s.lane += (s.targetLane - s.lane) * Math.min(1, 15 * dt);
-
-      if (s.slideTimer > 0) s.slideTimer -= dt;
-      else s.isSliding = false;
-
-      s.vY += s.gravity * dt;
-      s.y += s.vY * dt;
-      if (s.y >= height - 140) {
-        s.y = height - 140;
-        s.vY = 0;
-      }
-      s.coyoteTimer = Math.max(0, s.coyoteTimer - dt);
-
-      s.pool.forEach((o) => {
-        if (!s.dead) o.z -= s.speed * dt * 10;
-        if (o.z < -10) {
-          o.z = 420 + Math.random() * 120;
-          o.lane = Math.floor(Math.random() * 3);
-          o.type = ['empty', 'left', 'right', 'jump', 'slide'][Math.floor(Math.random() * 5)];
-          if (Math.random() > 0.7) s.gold += 1;
-        }
-
-        const near = o.z < 36 && o.z > 16;
-        if (near) s.coyoteTimer = 0.1;
-
-        const collidingLane = Math.abs(o.lane - s.lane) < 0.35;
-        if (!s.dead && collidingLane && o.z < 26 && o.z > 10) {
-          if (o.type === 'jump' && s.y >= height - 170) s.dead = true;
-          if (o.type === 'slide' && !s.isSliding) s.dead = true;
-          if ((o.type === 'left' || o.type === 'right')) s.dead = true;
-        }
-      });
-
-      ctx.clearRect(0, 0, width, height);
-      const horizonY = 110;
-      const roadBottomY = height - 60;
-      const centerX = width / 2;
-
-      // Sky + ambiance
-      const sky = ctx.createLinearGradient(0, 0, 0, height);
-      sky.addColorStop(0, '#60a5fa');
-      sky.addColorStop(0.45, '#93c5fd');
-      sky.addColorStop(1, '#0f172a');
-      ctx.fillStyle = sky;
-      ctx.fillRect(0, 0, width, height);
-
-      // Perspective helper
-      const project = (laneIndex, z) => {
-        const depth = Math.max(0.08, 1 - z / 520);
-        const laneSpread = 160 * depth;
-        const x = centerX + (laneIndex - 1) * laneSpread;
-        const y = horizonY + (1 - depth) * (roadBottomY - horizonY);
-        return { x, y, scale: depth };
-      };
-
-      // Road body
-      ctx.fillStyle = '#3f3f46';
-      ctx.beginPath();
-      ctx.moveTo(centerX - 26, horizonY);
-      ctx.lineTo(centerX + 26, horizonY);
-      ctx.lineTo(width - 10, roadBottomY);
-      ctx.lineTo(10, roadBottomY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Lane rails
-      [0, 1, 2].forEach((lane) => {
-        ctx.strokeStyle = lane === 1 ? 'rgba(250,204,21,0.75)' : 'rgba(255,255,255,0.55)';
-        ctx.lineWidth = lane === 1 ? 3 : 2;
-        ctx.beginPath();
-        for (let z = 0; z <= 500; z += 20) {
-          const p = project(lane, z);
-          if (z === 0) ctx.moveTo(p.x, p.y);
-          else ctx.lineTo(p.x, p.y);
-        }
-        ctx.stroke();
-      });
-
-      // Sleepers / ties
-      for (let z = 10; z <= 500; z += 25) {
-        const pL = project(0, z);
-        const pR = project(2, z);
-        ctx.strokeStyle = 'rgba(120,113,108,0.8)';
-        ctx.lineWidth = Math.max(1, 5 * pL.scale);
-        ctx.beginPath();
-        ctx.moveTo(pL.x - 12 * pL.scale, pL.y);
-        ctx.lineTo(pR.x + 12 * pR.scale, pR.y);
-        ctx.stroke();
-      }
-
-      // Obstacles in perspective
-      s.pool.forEach((o) => {
-        if (o.type === 'empty') return;
-        const p = project(o.lane, o.z);
-        if (p.y < horizonY || p.y > roadBottomY + 30) return;
-        const w = 52 * p.scale + 8;
-        const h = 34 * p.scale + 6;
-        ctx.fillStyle = o.type === 'jump' ? '#ef4444' : o.type === 'slide' ? '#f59e0b' : '#f43f5e';
-        ctx.fillRect(p.x - w / 2, p.y - h, w, h);
-      });
-
-      // Player (pseudo 3D)
-      const playerLane = s.lane;
-      const playerBaseX = centerX + (playerLane - 1) * 90;
-      const playerY = height - 140;
-      const playerH = s.isSliding ? 28 : 56;
-      ctx.fillStyle = '#22d3ee';
-      ctx.fillRect(playerBaseX - 18, playerY + (56 - playerH), 36, playerH);
-      ctx.fillStyle = '#0ea5e9';
-      ctx.fillRect(playerBaseX - 12, playerY - 14 + (56 - playerH), 24, 16);
-
-      ctx.fillStyle = '#fff';
-      ctx.font = 'bold 14px Inter, sans-serif';
-      ctx.fillText(`Mesafe: ${Math.floor(s.distance)}m`, width - 150, 24);
-      ctx.fillText(`Altın: ${s.gold}`, width - 150, 44);
-      ctx.fillText(`FOV: ${Math.round(s.cameraFov)}`, width - 150, 64);
-
-      if (s.dead) {
-        ctx.fillStyle = 'rgba(15,23,42,0.82)';
-        ctx.fillRect(0, 0, width, height);
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 28px Inter, sans-serif';
-        ctx.fillText('GAME OVER', width / 2 - 95, height / 2 - 20);
-        ctx.font = '16px Inter, sans-serif';
-        ctx.fillText(`Skor: ${Math.floor(s.distance)}m`, width / 2 - 48, height / 2 + 10);
-      }
-
-      rafId = requestAnimationFrame(loop);
-    };
-    rafId = requestAnimationFrame(loop);
-
-    return () => {
-      cancelAnimationFrame(rafId);
-      window.removeEventListener('keydown', keyHandler);
-      canvas.removeEventListener('touchstart', onTouchStart);
-      canvas.removeEventListener('touchend', onTouchEnd);
-    };
-  }, [isGameOpen]);
 
   // Veri Çekme
   useEffect(() => {
@@ -574,6 +388,29 @@ export default function App() {
     } finally {
       setIsSendingMessage(false);
     }
+  };
+
+  const startWeeklyTest = () => {
+    const shuffled = [...WEEKLY_QUESTIONS].sort(() => Math.random() - 0.5).slice(0, 10);
+    setQuizSet(shuffled);
+    setQuizAnswers({});
+    setQuizSubmitted(false);
+    setQuizScore(0);
+    setIsQuizOpen(true);
+  };
+
+  const submitWeeklyTest = () => {
+    if (quizSet.length === 0) return;
+    if (Object.keys(quizAnswers).length !== quizSet.length) {
+      setStatusMessage('Lütfen tüm soruları cevaplayın.');
+      return;
+    }
+    let correct = 0;
+    quizSet.forEach((q) => {
+      if (quizAnswers[q.id] === q.a) correct += 1;
+    });
+    setQuizScore(correct * 10);
+    setQuizSubmitted(true);
   };
 
   const filteredExams = useMemo(() => {
@@ -1241,25 +1078,52 @@ export default function App() {
       </div>
 
       <button
-        onClick={() => setIsGameOpen(true)}
+        onClick={startWeeklyTest}
         className="fixed bottom-6 left-6 z-50 bg-indigo-600 text-white px-4 py-3 rounded-full shadow-xl text-sm font-semibold md:text-base"
       >
-        🎮 Oyun Oyna
+        📝 Haftalık Test
       </button>
 
-      {isGameOpen && (
-        <div className="fixed inset-0 bg-slate-900/85 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
-          <div className="bg-slate-950/90 border border-slate-700 rounded-3xl p-4 relative">
-            <button
-              onClick={() => setIsGameOpen(false)}
-              className="absolute -top-3 -right-3 bg-white text-slate-900 w-8 h-8 rounded-full text-sm font-bold"
-            >
-              ✕
-            </button>
-            <canvas ref={gameCanvasRef} className="rounded-2xl border border-slate-700" />
-            <p className="text-xs text-slate-300 mt-2">
-              Kontrol: A/D veya ←/→ şerit değiştir, ↑ zıpla, ↓ eğil. Mobilde kaydırma ile oynanır.
-            </p>
+      {isQuizOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-hidden shadow-2xl">
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="text-xl font-bold">Haftalık Arkeoloji Testi (10 Soru)</h3>
+              <button onClick={() => setIsQuizOpen(false)} className="text-slate-500 hover:text-slate-800">Kapat</button>
+            </div>
+
+            <div className="p-5 overflow-y-auto max-h-[70vh] space-y-5">
+              {quizSet.map((item, idx) => (
+                <div key={item.id} className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                  <p className="font-semibold mb-3">{idx + 1}. {item.q}</p>
+                  <div className="space-y-2">
+                    {item.options.map((opt, optIdx) => (
+                      <label key={optIdx} className="flex items-start gap-2 text-sm">
+                        <input
+                          type="radio"
+                          name={`q-${item.id}`}
+                          checked={quizAnswers[item.id] === optIdx}
+                          onChange={() => setQuizAnswers((prev) => ({ ...prev, [item.id]: optIdx }))}
+                        />
+                        <span>{opt}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {quizSubmitted && (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-emerald-800 font-semibold">
+                  Puanın: {quizScore}/100 ({quizScore / 10} doğru / 10)
+                </div>
+              )}
+            </div>
+
+            <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+              <button onClick={submitWeeklyTest} className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-semibold">
+                Testi Bitir
+              </button>
+            </div>
           </div>
         </div>
       )}
