@@ -17,6 +17,7 @@ import {
   LogOut,
   ShieldCheck
 } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 
 // Supabase Yapılandırması
 const runtimeSupabaseUrl = typeof globalThis !== 'undefined'
@@ -995,6 +996,7 @@ export default function App() {
           </button>
         )}
       </div>
+      <Analytics />
     </div>
   );
 }
