@@ -93,13 +93,6 @@ export default function App() {
   const wasChatOpenRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
 
-  const sortMessagesOldestFirst = (items = []) =>
-    [...items].sort((a, b) => {
-      const timeDiff = new Date(a?.created_at || 0).getTime() - new Date(b?.created_at || 0).getTime();
-      if (timeDiff !== 0) return timeDiff;
-      return (a?.id || 0) - (b?.id || 0);
-    });
-
   const getSupabaseHeaders = (preferRepresentation = false) => ({
     apikey: supabaseAnonKey,
     Authorization: `Bearer ${supabaseAnonKey}`,
@@ -236,12 +229,12 @@ export default function App() {
     let mounted = true;
     const fetchMessages = async () => {
       try {
-        const res = await fetch(`${resolvedSupabaseUrl}/rest/v1/messages?select=*&order=created_at.desc&limit=30`, {
+        const res = await fetch(`${resolvedSupabaseUrl}/rest/v1/messages?select=*&order=created_at.asc&limit=30`, {
           headers: getSupabaseHeaders(),
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (mounted) setMessages(sortMessagesOldestFirst(data || []));
+        if (mounted) setMessages(data || []);
       } catch {
         // sohbet hataları ana akışı bozmasın
       }
@@ -339,7 +332,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Mesaj gönderilemedi');
       const inserted = await res.json();
-      setMessages((prev) => sortMessagesOldestFirst([...prev, ...(inserted || [])]));
+      setMessages((prev) => [...prev, ...(inserted || [])]);
       setNewMessage('');
     } catch (error) {
       setStatusMessage(error.message);
