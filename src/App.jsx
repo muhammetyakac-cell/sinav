@@ -231,7 +231,7 @@ export default function App() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (mounted) setMessages((data || []).reverse());
+        if (mounted) setMessages(data || []);
       } catch {
         // sohbet hataları ana akışı bozmasın
       }
@@ -329,7 +329,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Mesaj gönderilemedi');
       const inserted = await res.json();
-      setMessages((prev) => [...prev, ...(inserted || [])]);
+      setMessages((prev) => [...(inserted || []), ...prev]);
       setNewMessage('');
     } catch (error) {
       setStatusMessage(error.message);
