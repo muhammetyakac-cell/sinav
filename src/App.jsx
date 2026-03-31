@@ -90,6 +90,13 @@ export default function App() {
   const [quizAnswers, setQuizAnswers] = useState({});
   const [quizScore, setQuizScore] = useState(null);
 
+  const sortMessagesNewestFirst = (items = []) =>
+    [...items].sort((a, b) => {
+      const timeDiff = new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return (b?.id || 0) - (a?.id || 0);
+    });
+
   const getSupabaseHeaders = (preferRepresentation = false) => ({
     apikey: supabaseAnonKey,
     Authorization: `Bearer ${supabaseAnonKey}`,
@@ -231,7 +238,7 @@ export default function App() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (mounted) setMessages(data || []);
+        if (mounted) setMessages(sortMessagesNewestFirst(data || []));
       } catch {
         // sohbet hataları ana akışı bozmasın
       }
@@ -329,7 +336,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Mesaj gönderilemedi');
       const inserted = await res.json();
-      setMessages((prev) => [...(inserted || []), ...prev]);
+      setMessages((prev) => sortMessagesNewestFirst([...(inserted || []), ...prev]));
       setNewMessage('');
     } catch (error) {
       setStatusMessage(error.message);
