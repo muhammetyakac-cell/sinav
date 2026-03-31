@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Calendar as CalendarIcon, 
   ChevronLeft, 
@@ -89,12 +89,15 @@ export default function App() {
   const [quizQuestions, setQuizQuestions] = useState([]);
   const [quizAnswers, setQuizAnswers] = useState({});
   const [quizScore, setQuizScore] = useState(null);
+  const chatBodyRef = useRef(null);
+  const wasChatOpenRef = useRef(false);
+  const shouldStickToBottomRef = useRef(true);
 
-  const sortMessagesNewestFirst = (items = []) =>
+  const sortMessagesOldestFirst = (items = []) =>
     [...items].sort((a, b) => {
-      const timeDiff = new Date(b?.created_at || 0).getTime() - new Date(a?.created_at || 0).getTime();
+      const timeDiff = new Date(a?.created_at || 0).getTime() - new Date(b?.created_at || 0).getTime();
       if (timeDiff !== 0) return timeDiff;
-      return (b?.id || 0) - (a?.id || 0);
+      return (a?.id || 0) - (b?.id || 0);
     });
 
   const getSupabaseHeaders = (preferRepresentation = false) => ({
@@ -238,7 +241,7 @@ export default function App() {
         });
         if (!res.ok) return;
         const data = await res.json();
-        if (mounted) setMessages(sortMessagesNewestFirst(data || []));
+        if (mounted) setMessages(sortMessagesOldestFirst(data || []));
       } catch {
         // sohbet hataları ana akışı bozmasın
       }
@@ -336,7 +339,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error('Mesaj gönderilemedi');
       const inserted = await res.json();
-      setMessages((prev) => sortMessagesNewestFirst([...(inserted || []), ...prev]));
+      setMessages((prev) => sortMessagesOldestFirst([...prev, ...(inserted || [])]));
       setNewMessage('');
     } catch (error) {
       setStatusMessage(error.message);
@@ -376,6 +379,21 @@ export default function App() {
     const percent = Math.round((correct / quizQuestions.length) * 100);
     setQuizScore({ correct, total: quizQuestions.length, percent, wrongQuestions });
   };
+
+  useEffect(() => {
+    const container = chatBodyRef.current;
+    if (!container || !isChatOpen) {
+      wasChatOpenRef.current = isChatOpen;
+      return;
+    }
+
+    const openedNow = !wasChatOpenRef.current && isChatOpen;
+    if (openedNow || shouldStickToBottomRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
+
+    wasChatOpenRef.current = isChatOpen;
+  }, [isChatOpen, messages]);
 
   const filteredExams = useMemo(() => {
     const todayStart = new Date().setHours(0, 0, 0, 0);
@@ -1001,7 +1019,14 @@ export default function App() {
             </div>
 
             <>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
+              <div
+                ref={chatBodyRef}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  shouldStickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                }}
+                className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50"
+              >
                 {messages.map((msg) => (
                   <div key={msg.id} className="flex flex-col">
                     <span className="text-[10px] font-bold mb-0.5" style={{ color: msg.color }}>{msg.nickname}</span>
